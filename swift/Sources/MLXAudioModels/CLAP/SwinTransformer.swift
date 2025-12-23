@@ -112,7 +112,9 @@ public class WindowAttention: Module, @unchecked Sendable {
         let coordsW = MLXArray(0..<windowSize.1)
 
         // Create meshgrid
-        let (meshH, meshW) = MLX.meshGrid([coordsH, coordsW], indexing: .ij)
+        let meshResult = MLX.meshGrid([coordsH, coordsW], indexing: .ij)
+        let meshH = meshResult[0]
+        let meshW = meshResult[1]
         let coords = MLX.stacked([meshH, meshW], axis: 0)  // [2, Wh, Ww]
         let coordsFlatten = coords.reshaped([2, -1])  // [2, Wh*Ww]
 
@@ -122,8 +124,8 @@ public class WindowAttention: Module, @unchecked Sendable {
         let relativeCoordsPerm = relativeCoords.transposed(axes: [1, 2, 0])  // [Wh*Ww, Wh*Ww, 2]
 
         // Shift to start from 0
-        let relativeCoords0 = (relativeCoordsPerm[.ellipsis, 0] + (windowSize.0 - 1)) * (2 * windowSize.1 - 1)
-        let relativeCoords1 = relativeCoordsPerm[.ellipsis, 1] + (windowSize.1 - 1)
+        let relativeCoords0 = (relativeCoordsPerm[0..., 0..., 0] + (windowSize.0 - 1)) * (2 * windowSize.1 - 1)
+        let relativeCoords1 = relativeCoordsPerm[0..., 0..., 1] + (windowSize.1 - 1)
 
         self.relativePositionIndex = (relativeCoords0 + relativeCoords1).asType(.int32)
 
@@ -278,7 +280,7 @@ public class SwinTransformerBlock: Module, @unchecked Sendable {
         let padB = (windowSize - H % windowSize) % windowSize
         let padR = (windowSize - W % windowSize) % windowSize
         if padB > 0 || padR > 0 {
-            out = MLX.padded(out, widths: [(0, 0), (0, padB), (0, padR), (0, 0)])
+            out = MLX.padded(out, widths: [.init((0, 0)), .init((0, padB)), .init((0, padR)), .init((0, 0))])
         }
 
         let Hp = H + padB
@@ -288,7 +290,9 @@ public class SwinTransformerBlock: Module, @unchecked Sendable {
         var shiftedX: MLXArray
         var attnMask: MLXArray? = nil
         if shiftSize > 0 {
-            shiftedX = MLX.roll(out, shift: [-shiftSize, -shiftSize], axes: [1, 2])
+            // Apply roll on each axis separately
+            shiftedX = MLX.roll(out, shift: -shiftSize, axis: 1)
+            shiftedX = MLX.roll(shiftedX, shift: -shiftSize, axis: 2)
             // Note: Attention mask computation would go here for full implementation
             // For simplicity, we skip the mask (works for most cases)
         } else {
@@ -308,7 +312,8 @@ public class SwinTransformerBlock: Module, @unchecked Sendable {
 
         // Reverse cyclic shift
         if shiftSize > 0 {
-            out = MLX.roll(shiftedX, shift: [shiftSize, shiftSize], axes: [1, 2])
+            out = MLX.roll(shiftedX, shift: shiftSize, axis: 1)
+            out = MLX.roll(out, shift: shiftSize, axis: 2)
         } else {
             out = shiftedX
         }
@@ -375,16 +380,21 @@ public class PatchMerging: Module, @unchecked Sendable {
         var Hp = H
         var Wp = W
         if padB > 0 || padR > 0 {
-            out = MLX.padded(out, widths: [(0, 0), (0, padB), (0, padR), (0, 0)])
+            out = MLX.padded(out, widths: [.init((0, 0)), .init((0, padB)), .init((0, padR)), .init((0, 0))])
             Hp = H + padB
             Wp = W + padR
         }
 
-        // Merge 2x2 patches
-        let x0 = out[0..., (0...).striding(by: 2), (0...).striding(by: 2), 0...]  // [B, H/2, W/2, C]
-        let x1 = out[0..., (1...).striding(by: 2), (0...).striding(by: 2), 0...]
-        let x2 = out[0..., (0...).striding(by: 2), (1...).striding(by: 2), 0...]
-        let x3 = out[0..., (1...).striding(by: 2), (1...).striding(by: 2), 0...]
+        // Merge 2x2 patches using stride indices
+        let evenH = MLXArray(stride(from: 0, to: Hp, by: 2).map { Int32($0) })
+        let oddH = MLXArray(stride(from: 1, to: Hp, by: 2).map { Int32($0) })
+        let evenW = MLXArray(stride(from: 0, to: Wp, by: 2).map { Int32($0) })
+        let oddW = MLXArray(stride(from: 1, to: Wp, by: 2).map { Int32($0) })
+
+        let x0 = out.take(evenH, axis: 1).take(evenW, axis: 2)  // [B, H/2, W/2, C]
+        let x1 = out.take(oddH, axis: 1).take(evenW, axis: 2)
+        let x2 = out.take(evenH, axis: 1).take(oddW, axis: 2)
+        let x3 = out.take(oddH, axis: 1).take(oddW, axis: 2)
 
         out = MLX.concatenated([x0, x1, x2, x3], axis: -1)  // [B, H/2, W/2, 4*C]
         out = out.reshaped([B, -1, 4 * C])

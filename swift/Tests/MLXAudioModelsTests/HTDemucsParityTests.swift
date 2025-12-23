@@ -31,14 +31,30 @@ final class HTDemucsParityTests: XCTestCase {
 
     /// Path to fixtures directory
     static var fixturesPath: URL {
-        // Look for fixtures relative to the package
-        let packagePath = URL(fileURLWithPath: #file)
+        // Try environment variable first
+        if let envPath = ProcessInfo.processInfo.environment["HTDEMUCS_FIXTURES_PATH"] {
+            return URL(fileURLWithPath: envPath)
+        }
+
+        // Try relative to source file
+        let sourcePath = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()  // HTDemucsParityTests.swift
             .deletingLastPathComponent()  // MLXAudioModelsTests
             .deletingLastPathComponent()  // Tests
             .appendingPathComponent("Fixtures")
             .appendingPathComponent("HTDemucs")
-        return packagePath
+
+        if FileManager.default.fileExists(atPath: sourcePath.path) {
+            return sourcePath
+        }
+
+        // Try relative to current working directory
+        let cwdPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Tests")
+            .appendingPathComponent("Fixtures")
+            .appendingPathComponent("HTDemucs")
+
+        return cwdPath
     }
 
     /// Check if fixtures are available
@@ -106,7 +122,7 @@ final class HTDemucsParityTests: XCTestCase {
 
         // Create DConv and load weights
         let dconv = DConv(channels: 48, depth: 2, compress: 8)
-        try dconv.update(parameters: weights, verify: .noUnusedKeys)
+        try dconv.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         // Run forward pass
         let output = dconv(input)
@@ -140,7 +156,7 @@ final class HTDemucsParityTests: XCTestCase {
             dconvDepth: 2,
             dconvCompress: 8
         )
-        try encoder.update(parameters: weights, verify: .noUnusedKeys)
+        try encoder.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         let output = encoder(input)
 
@@ -170,7 +186,7 @@ final class HTDemucsParityTests: XCTestCase {
             dconvDepth: 2,
             dconvCompress: 8
         )
-        try encoder.update(parameters: weights, verify: .noUnusedKeys)
+        try encoder.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         let output = encoder(input)
 
@@ -204,7 +220,7 @@ final class HTDemucsParityTests: XCTestCase {
             dconvCompress: 8,
             last: true
         )
-        try decoder.update(parameters: weights, verify: .noUnusedKeys)
+        try decoder.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         let (output, _) = decoder(input, skip: skip, length: 65)
 
@@ -237,7 +253,7 @@ final class HTDemucsParityTests: XCTestCase {
             dconvCompress: 8,
             last: true
         )
-        try decoder.update(parameters: weights, verify: .noUnusedKeys)
+        try decoder.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         let (output, _) = decoder(input, skip: skip, length: length)
 
@@ -263,7 +279,7 @@ final class HTDemucsParityTests: XCTestCase {
         let expectedOutput = fixtures["output"]!
 
         let mha = MultiheadAttention(embedDim: 512, numHeads: 8)
-        try mha.update(parameters: weights, verify: .noUnusedKeys)
+        try mha.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         let output = mha(query: query, key: key, value: value)
 
@@ -292,7 +308,7 @@ final class HTDemucsParityTests: XCTestCase {
             heads: 8,
             dimFeedforward: 2048
         )
-        try transformer.update(parameters: weights, verify: .noUnusedKeys)
+        try transformer.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         let (freqOutput, timeOutput) = transformer(freq: freqInput, time: timeInput)
 
@@ -369,7 +385,7 @@ final class HTDemucsParityTests: XCTestCase {
         let config = try JSONDecoder().decode(HTDemucsConfig.self, from: configData)
 
         let model = HTDemucs(config: config)
-        try model.update(parameters: weights, verify: .noUnusedKeys)
+        try model.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         let output = model(input)
 
@@ -403,7 +419,7 @@ final class HTDemucsParityTests: XCTestCase {
         let config = try JSONDecoder().decode(HTDemucsConfig.self, from: configData)
 
         let model = HTDemucs(config: config)
-        try model.update(parameters: weights, verify: .noUnusedKeys)
+        try model.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
         let output = model(input)
 

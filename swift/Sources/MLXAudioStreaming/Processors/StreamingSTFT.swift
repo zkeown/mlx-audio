@@ -164,7 +164,7 @@ public actor StreamingSTFT: StreamingProcessor {
 
         // Get or create window
         if windowArray == nil {
-            windowArray = window(configuration.window, length: nFFT)
+            windowArray = MLXAudioPrimitives.getWindow(configuration.window, length: nFFT)
         }
         let win = windowArray!
 
@@ -183,13 +183,13 @@ public actor StreamingSTFT: StreamingProcessor {
             frame = frame * win
 
             // Compute FFT (real-valued input -> complex output)
-            let spectrum = MLX.FFT.rfft(frame)
+            let spectrum = MLXFFT.rfft(frame)
 
             // Process output based on configuration
             var output: MLXArray
             if configuration.returnMagnitude {
                 // Compute magnitude
-                output = magnitude(ComplexArray(spectrum))
+                output = ComplexArray(real: spectrum).magnitude()
 
                 if configuration.toDecibels {
                     // Convert to dB
@@ -315,16 +315,16 @@ public actor StreamingMelSpectrogram: StreamingProcessor {
         if melFilterbank == nil {
             let config = MelConfig(
                 sampleRate: sampleRate,
-                nFFT: await stft.frequencyBins * 2 - 2,
                 nMels: nMels
             )
-            melFilterbank = try melFilterbank(config: config)
+            let nFFTLocal = await stft.frequencyBins * 2 - 2
+            melFilterbank = try MLXAudioPrimitives.melFilterbank(nFFT: nFFTLocal, config: config)
         }
 
         let filterbank = melFilterbank!
 
         // Apply mel filterbank: [nMels, freqBins] @ [freqBins, nFrames] = [nMels, nFrames]
-        let powerSpec = spectrogram .* spectrogram  // Power spectrogram
+        let powerSpec = spectrogram * spectrogram  // Power spectrogram
         let melSpec = MLX.matmul(filterbank, powerSpec)
 
         // Convert to log scale

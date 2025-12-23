@@ -219,12 +219,12 @@ public class HTDemucs: Module, @unchecked Sendable {
         // Normalize frequency input
         let specMean = mag.mean(axes: [1, 2, 3], keepDims: true)
         let specStd = MLX.sqrt(mag.variance(axes: [1, 2, 3], keepDims: true)) + 1e-5
-        var freqIn = (mag - specMean) / specStd
+        let freqIn = (mag - specMean) / specStd
 
         // Normalize time input
         let mixMean = inputMix.mean(axes: [1, 2], keepDims: true)
         let mixStd = MLX.sqrt(inputMix.variance(axes: [1, 2], keepDims: true)) + 1e-5
-        var mixNorm = (inputMix - mixMean) / mixStd
+        let mixNorm = (inputMix - mixMean) / mixStd
 
         // Encode frequency branch
         var freqLengths: [Int] = []

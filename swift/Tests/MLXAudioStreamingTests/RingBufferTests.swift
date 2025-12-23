@@ -205,12 +205,13 @@ final class RingBufferTests: XCTestCase {
     }
 
     func testFillLevel() {
-        let buffer = AudioRingBuffer(capacity: 100, channels: 1)
+        // Use power-of-2 capacity to get exact fill level
+        let buffer = AudioRingBuffer(capacity: 128, channels: 1)
 
         XCTAssertEqual(buffer.fillLevel, 0.0, accuracy: 0.01)
 
-        _ = buffer.write([Float](repeating: 1.0, count: 50))
-        XCTAssertEqual(buffer.fillLevel, 0.5, accuracy: 0.1)  // ~50%
+        _ = buffer.write([Float](repeating: 1.0, count: 64))
+        XCTAssertEqual(buffer.fillLevel, 0.5, accuracy: 0.01)  // 64/128 = 50%
     }
 
     // MARK: - Thread Safety Tests

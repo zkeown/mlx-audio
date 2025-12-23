@@ -8,11 +8,11 @@ import XCTest
 // MARK: - Mock Audio Source
 
 /// Mock audio source for testing that generates synthetic audio.
-actor MockAudioSource: AudioSource {
+actor MockAudioSource: @preconcurrency AudioSource {
     nonisolated let sampleRate: Int
     nonisolated let channels: Int
 
-    var isActive: Bool { _isActive }
+    nonisolated var isActive: Bool { false }
 
     private var _isActive = false
     private var samplesGenerated = 0
@@ -68,11 +68,11 @@ actor MockAudioSource: AudioSource {
 // MARK: - Mock Audio Sink
 
 /// Mock audio sink for testing that accumulates received audio.
-actor MockAudioSink: AudioSink {
+actor MockAudioSink: @preconcurrency AudioSink {
     nonisolated let sampleRate: Int
     nonisolated let channels: Int
 
-    var isActive: Bool { _isActive }
+    nonisolated var isActive: Bool { false }
 
     private var _isActive = false
     private var receivedSamples: [[Float]] = []
@@ -113,7 +113,7 @@ actor MockAudioSink: AudioSink {
 // MARK: - Mock Processor
 
 /// Mock processor that passes through or modifies audio.
-actor MockProcessor: StreamingProcessor {
+actor MockProcessor: @preconcurrency StreamingProcessor {
     private var processCount = 0
     private let gain: Float
 

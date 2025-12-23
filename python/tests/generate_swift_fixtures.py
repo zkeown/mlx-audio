@@ -44,7 +44,7 @@ def generate_layer_fixtures(output_dir: Path) -> None:
     dconv = DConv(channels=48, depth=2, compress=8)
     dconv_input = mx.random.normal([2, 100, 48])  # [B, T, C] NLC format
     dconv_output = dconv(dconv_input)
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "dconv.safetensors"),
         {
             "input": dconv_input,
@@ -68,7 +68,7 @@ def generate_layer_fixtures(output_dir: Path) -> None:
     # [B, C, F, T] NCHW format
     freq_enc_input = mx.random.normal([1, 4, 512, 65])
     freq_enc_output = freq_encoder(freq_enc_input)
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "freq_encoder.safetensors"),
         {
             "input": freq_enc_input,
@@ -91,7 +91,7 @@ def generate_layer_fixtures(output_dir: Path) -> None:
     # [B, C, T] NCL format
     time_enc_input = mx.random.normal([1, 2, 44100])
     time_enc_output = time_encoder(time_enc_input)
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "time_encoder.safetensors"),
         {
             "input": time_enc_input,
@@ -115,7 +115,7 @@ def generate_layer_fixtures(output_dir: Path) -> None:
     freq_dec_input = mx.random.normal([1, 48, 128, 65])
     freq_dec_skip = mx.random.normal([1, 48, 128, 65])
     freq_dec_output, freq_dec_pre = freq_decoder(freq_dec_input, freq_dec_skip, length=65)
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "freq_decoder.safetensors"),
         {
             "input": freq_dec_input,
@@ -141,7 +141,7 @@ def generate_layer_fixtures(output_dir: Path) -> None:
     time_dec_input = mx.random.normal([1, 48, 2756])
     time_dec_skip = mx.random.normal([1, 48, 2756])
     time_dec_output, time_dec_pre = time_decoder(time_dec_input, time_dec_skip, length=11025)
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "time_decoder.safetensors"),
         {
             "input": time_dec_input,
@@ -160,7 +160,7 @@ def generate_layer_fixtures(output_dir: Path) -> None:
     mha_key = mx.random.normal([2, 80, 512])
     mha_value = mha_key
     mha_output = mha(mha_query, mha_key, mha_value)
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "multihead_attention.safetensors"),
         {
             "query": mha_query,
@@ -182,7 +182,7 @@ def generate_layer_fixtures(output_dir: Path) -> None:
     trans_freq = mx.random.normal([1, 512, 8, 16])  # [B, C, F, T]
     trans_time = mx.random.normal([1, 512, 100])    # [B, C, T]
     trans_freq_out, trans_time_out = transformer(trans_freq, trans_time)
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "cross_transformer.safetensors"),
         {
             "freq_input": trans_freq,
@@ -233,7 +233,7 @@ def generate_full_model_fixtures(output_dir: Path, use_pretrained: bool = False)
     mx.eval(output)
 
     print("  Saving fixtures...")
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "full_model.safetensors"),
         {
             "input": test_input,
@@ -295,7 +295,7 @@ def generate_stft_fixtures(output_dir: Path) -> None:
     # iSTFT
     reconstructed = istft(spec, hop_length=1024, length=44100)
 
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "stft.safetensors"),
         {
             "audio": audio,
@@ -338,7 +338,7 @@ def generate_small_model_fixtures(output_dir: Path) -> None:
     mx.eval(output)
 
     print("  Saving fixtures...")
-    mx.save(
+    mx.save_safetensors(
         str(output_dir / "small_model.safetensors"),
         {
             "input": test_input,

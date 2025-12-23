@@ -81,7 +81,7 @@ final class HTDemucsTests: XCTestCase {
     func testGLU() {
         let input = MLXRandom.normal([2, 100, 128])
 
-        let output = glu(input, axis: -1)
+        let output = MLXNN.glu(input, axis: -1)
 
         XCTAssertEqual(output.shape, [2, 100, 64])  // Half the last dimension
     }

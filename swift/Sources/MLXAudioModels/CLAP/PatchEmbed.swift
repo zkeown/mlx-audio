@@ -141,8 +141,8 @@ public class PatchEmbed: Module, @unchecked Sendable {
         self._proj.wrappedValue = Conv2d(
             inputChannels: inChans,
             outputChannels: embedDim,
-            kernelSize: patchSize,
-            stride: patchStride
+            kernelSize: .init(patchSize),
+            stride: .init(patchStride)
         )
         self._norm.wrappedValue = LayerNorm(dimensions: embedDim)
 
@@ -153,8 +153,8 @@ public class PatchEmbed: Module, @unchecked Sendable {
             self.melConv2d = Conv2d(
                 inputChannels: 1,
                 outputChannels: embedDim,
-                kernelSize: IntOrPair(patchSize, patchSize * 3),
-                stride: IntOrPair(patchStride.0, patchStride.1 * 3)
+                kernelSize: .init((patchSize, patchSize * 3)),
+                stride: .init((patchStride.0, patchStride.1 * 3))
             )
             self.fusionModel = AFFBlock(channels: embedDim)
         }
@@ -224,7 +224,7 @@ public class PatchEmbed: Module, @unchecked Sendable {
                 if localWidth < outputWidth {
                     // Pad local to match global
                     let padWidth = outputWidth - localWidth
-                    localOut = MLX.padded(localOut, widths: [(0, 0), (0, 0), (0, padWidth), (0, 0)])
+                    localOut = MLX.padded(localOut, widths: [.init((0, 0)), .init((0, 0)), .init((0, padWidth)), .init((0, 0))])
                 } else if localWidth > outputWidth {
                     // Crop local to match global
                     localOut = localOut[0..., 0..., 0..<outputWidth, 0...]
