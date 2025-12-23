@@ -56,9 +56,10 @@ class TestSTFTParity:
 
         # Compare magnitudes
         # Note: rtol=1e-4 gives ~0.02% violations due to float32 precision
-        # on large values (~500). Max abs diff is ~1.5e-4, well within bounds.
+        # on large values (~500). Max abs diff is ~1.5e-4.
+        # Tightened atol from 2e-4 to 1.5e-4 based on measured headroom.
         np.testing.assert_allclose(
-            mlx_mag, librosa_mag, rtol=1e-4, atol=2e-4
+            mlx_mag, librosa_mag, rtol=1e-4, atol=1.5e-4
         )
 
     def test_stft_random_signal(self):
@@ -235,8 +236,9 @@ class TestMelSpectrogramParity:
         )
         mlx_mel = np.array(mlx_mel)
 
+        # Tightened rtol from 1e-3 to 1e-4 to match filterbank tests
         np.testing.assert_allclose(
-            mlx_mel, librosa_mel, rtol=1e-3, atol=1e-5
+            mlx_mel, librosa_mel, rtol=1e-4, atol=1e-5
         )
 
 

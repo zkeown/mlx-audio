@@ -64,8 +64,8 @@ public struct HTDemucsConfig: Codable, Sendable, Equatable {
     /// FFN hidden dimension multiplier.
     public var t_hidden_scale: Float
 
-    /// Positional embedding type ("sin", "scaled", "cape").
-    public var t_pos_embedding: String
+    /// Positional embedding type ("sin", "scaled", "cape"). Optional for backward compatibility.
+    public var t_pos_embedding: String?
 
     /// Transformer dimension (0 = use encoder output channels).
     public var bottom_channels: Int
@@ -78,11 +78,11 @@ public struct HTDemucsConfig: Codable, Sendable, Equatable {
     /// Compression factor for hidden channels.
     public var dconv_comp: Int
 
-    /// Number of LSTM layers in DConv (0 = none).
-    public var dconv_lstm: Int
+    /// Number of LSTM layers in DConv (0 = none). Optional for backward compatibility.
+    public var dconv_lstm: Int?
 
-    /// Number of attention heads in DConv (0 = none).
-    public var dconv_attn: Int
+    /// Number of attention heads in DConv (0 = none). Optional for backward compatibility.
+    public var dconv_attn: Int?
 
     // MARK: - Output Mode
 
@@ -121,12 +121,12 @@ public struct HTDemucsConfig: Codable, Sendable, Equatable {
         t_heads: Int = 8,
         t_dropout: Float = 0.0,
         t_hidden_scale: Float = 4.0,
-        t_pos_embedding: String = "sin",
+        t_pos_embedding: String? = "sin",
         bottom_channels: Int = 512,
         dconv_depth: Int = 2,
         dconv_comp: Int = 8,
-        dconv_lstm: Int = 0,
-        dconv_attn: Int = 0,
+        dconv_lstm: Int? = 0,
+        dconv_attn: Int? = 0,
         cac: Bool = true
     ) {
         self.sources = sources

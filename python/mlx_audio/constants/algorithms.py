@@ -41,6 +41,12 @@ DEFAULT_AMIN = 1e-10
 CONVERT_AMIN = 1e-5
 """Amplitude floor for dB conversion."""
 
+DIVISION_EPSILON = 1e-8
+"""Epsilon for preventing division by zero in general operations."""
+
+FILTERBANK_EPSILON = 1e-10
+"""Epsilon for filterbank slope calculations (tight precision needed)."""
+
 # CLAP-specific
 CLAP_LOGIT_SCALE_INIT = 2.6592
 """CLAP contrastive learning logit scale (log(14.2857))."""
@@ -60,6 +66,8 @@ __all__ = [
     "LAYER_NORM_EPS",
     "DEFAULT_AMIN",
     "CONVERT_AMIN",
+    "DIVISION_EPSILON",
+    "FILTERBANK_EPSILON",
     "CLAP_LOGIT_SCALE_INIT",
     "DCONV_INIT_SCALE",
 ]

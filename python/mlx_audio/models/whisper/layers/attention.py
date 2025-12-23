@@ -9,7 +9,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 if TYPE_CHECKING:
-    pass
+    from mlx_audio.models.whisper.kv_cache import KVCache
 
 
 class MultiHeadAttention(nn.Module):
@@ -48,8 +48,9 @@ class MultiHeadAttention(nn.Module):
         x: mx.array,
         xa: mx.array | None = None,
         mask: mx.array | None = None,
-        kv_cache: tuple[mx.array, mx.array] | None = None,
-    ) -> tuple[mx.array, tuple[mx.array, mx.array] | None]:
+        kv_cache: "KVCache | None" = None,
+        layer_idx: int = 0,
+    ) -> tuple[mx.array, None]:
         """Forward pass with optional KV caching.
 
         Args:
@@ -57,14 +58,14 @@ class MultiHeadAttention(nn.Module):
             xa: Key/value source for cross-attention [B, S, D].
                 If None, performs self-attention.
             mask: Attention mask [T, S] or [B, T, S]
-            kv_cache: Cached (key, value) from previous steps for
-                incremental decoding. Only used for self-attention.
+            kv_cache: Pre-allocated KV cache for efficient incremental
+                decoding. Only used for self-attention.
+            layer_idx: Layer index for multi-layer KV cache.
 
         Returns:
             Tuple of:
                 - Output tensor [B, T, D]
-                - Updated KV cache (key, value) for self-attention,
-                  or None for cross-attention
+                - None (cache is updated in-place)
         """
         B, T, _ = x.shape
 
@@ -76,18 +77,13 @@ class MultiHeadAttention(nn.Module):
             k = self.key(x)
             v = self.value(x)
 
-            # Handle KV cache for incremental decoding
+            # Use pre-allocated KV cache for O(1) append
             if kv_cache is not None:
-                k_cache, v_cache = kv_cache
-                k = mx.concatenate([k_cache, k], axis=1)
-                v = mx.concatenate([v_cache, v], axis=1)
-
-            new_kv_cache = (k, v)
+                k, v = kv_cache.update(layer_idx, k, v)
         else:
             # Cross-attention (no caching needed, encoder output is fixed)
             k = self.key(xa)
             v = self.value(xa)
-            new_kv_cache = None
 
         S = k.shape[1]
 
@@ -97,19 +93,26 @@ class MultiHeadAttention(nn.Module):
         k = k.reshape(B, S, self.n_head, self.head_dim).transpose(0, 2, 1, 3)
         v = v.reshape(B, S, self.n_head, self.head_dim).transpose(0, 2, 1, 3)
 
-        # Compute attention scores
-        # [B, n_head, T, head_dim] @ [B, n_head, head_dim, S] -> [B, n_head, T, S]
-        attn = (q @ k.transpose(0, 1, 3, 2)) * self.scale
+        # Use flash attention if available (MLX 0.30+), otherwise fallback
+        if hasattr(mx.fast, "scaled_dot_product_attention"):
+            # Flash attention: memory-efficient O(T) instead of O(T²)
+            out = mx.fast.scaled_dot_product_attention(
+                q, k, v, scale=self.scale, mask=mask
+            )
+        else:
+            # Fallback: standard attention with O(T²) memory
+            # [B, n_head, T, head_dim] @ [B, n_head, head_dim, S] -> [B, n_head, T, S]
+            attn = (q @ k.transpose(0, 1, 3, 2)) * self.scale
 
-        # Apply mask if provided
-        if mask is not None:
-            attn = attn + mask
+            # Apply mask if provided
+            if mask is not None:
+                attn = attn + mask
 
-        # Softmax and apply to values
-        attn = mx.softmax(attn, axis=-1)
+            # Softmax and apply to values
+            attn = mx.softmax(attn, axis=-1)
 
-        # [B, n_head, T, S] @ [B, n_head, S, head_dim] -> [B, n_head, T, head_dim]
-        out = attn @ v
+            # [B, n_head, T, S] @ [B, n_head, S, head_dim] -> [B, n_head, T, head_dim]
+            out = attn @ v
 
         # Reshape back
         # [B, n_head, T, head_dim] -> [B, T, n_head, head_dim] -> [B, T, D]
@@ -118,7 +121,7 @@ class MultiHeadAttention(nn.Module):
         # Output projection
         out = self.out(out)
 
-        return out, new_kv_cache
+        return out, None
 
 
 class ResidualAttentionBlock(nn.Module):
@@ -175,26 +178,27 @@ class ResidualAttentionBlock(nn.Module):
         x: mx.array,
         xa: mx.array | None = None,
         mask: mx.array | None = None,
-        kv_cache: tuple[mx.array, mx.array] | None = None,
-    ) -> tuple[mx.array, tuple[mx.array, mx.array] | None]:
+        kv_cache: "KVCache | None" = None,
+        layer_idx: int = 0,
+    ) -> mx.array:
         """Forward pass.
 
         Args:
             x: Input tensor [B, T, D]
             xa: Encoder output for cross-attention [B, S, D]
             mask: Causal attention mask
-            kv_cache: Cached (key, value) for incremental decoding
+            kv_cache: Pre-allocated KV cache for incremental decoding
+            layer_idx: Layer index for multi-layer KV cache
 
         Returns:
-            Tuple of:
-                - Output tensor [B, T, D]
-                - Updated KV cache (self-attention only)
+            Output tensor [B, T, D]
         """
         # Self-attention
-        attn_out, new_kv_cache = self.attn(
+        attn_out, _ = self.attn(
             self.attn_ln(x),
             mask=mask,
             kv_cache=kv_cache,
+            layer_idx=layer_idx,
         )
         x = x + attn_out
 
@@ -209,4 +213,4 @@ class ResidualAttentionBlock(nn.Module):
         # MLP
         x = x + self.mlp(self.mlp_ln(x))
 
-        return x, new_kv_cache
+        return x

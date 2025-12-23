@@ -1,6 +1,9 @@
 """Encoder layers for HTDemucs.
 
 Matches PyTorch demucs.hdemucs.HEncLayer exactly.
+
+OPTIMIZATION: Uses MLX-native NHWC/NLC format internally to avoid transposes.
+Format conversion happens at model boundaries in model.py.
 """
 
 from __future__ import annotations
@@ -21,13 +24,12 @@ class HEncLayer(nn.Module):
         norm2: Identity (not used, kept for weight compatibility)
         dconv: DConv - dilated residual block
 
-    For frequency branch (freq=True):
-        - Uses Conv2d with kernel (K, 1), stride (S, 1)
-        - Input: [B, C, F, T] (batch, channels, freq bins, time frames)
+    INTERNAL FORMAT (optimized for MLX):
+        - freq=True: [B, F, T, C] (NHWC format)
+        - freq=False: [B, T, C] (NLC format)
 
-    For time branch (freq=False):
-        - Uses Conv1d with kernel K, stride S
-        - Input: [B, C, T] (batch, channels, time samples)
+    NOTE: model.py converts from PyTorch format (NCHW/NCL) at entry
+    and converts back at exit. Layers operate in MLX-native format.
     """
 
     def __init__(
@@ -94,67 +96,58 @@ class HEncLayer(nn.Module):
             5. glu(z)
 
         Args:
-            x: Input tensor
-                - freq=True: [B, C, F, T] (NCHW format)
-                - freq=False: [B, C, T] (NCL format)
+            x: Input tensor (NHWC/NLC format for MLX efficiency)
+                - freq=True: [B, F, T, C] (NHWC format)
+                - freq=False: [B, T, C] (NLC format)
 
         Returns:
             Downsampled output with same format as input
         """
         if self.freq:
-            # 1. Conv: NCHW -> NHWC for MLX Conv2d
-            x = x.transpose(0, 2, 3, 1)  # [B, F, T, C]
+            # x is [B, F, T, C] - already NHWC, no transpose needed!
+
+            # 1. Conv2d (MLX uses NHWC natively)
             x = self.conv(x)
-            x = x.transpose(0, 3, 1, 2)  # back to [B, C, F, T]
 
             # 2. GELU (norm1 is identity)
             x = nn.gelu(x)
 
-            # 3. DConv: collapse freq into batch, keep C channels
-            B, C, Fr, T = x.shape
-            x = x.transpose(0, 2, 1, 3)  # [B, Fr, C, T]
-            x = x.reshape(B * Fr, C, T)  # [B*Fr, C, T]
-            x = x.transpose(0, 2, 1)  # NCL -> NLC for MLX
+            # 3. DConv: collapse freq into batch
+            # [B, F, T, C] -> [B*F, T, C] - already NLC for DConv!
+            B, Fr, T, C = x.shape
+            x = x.reshape(B * Fr, T, C)
             x = self.dconv(x)
-            x = x.transpose(0, 2, 1)  # NLC -> NCL
-            x = x.reshape(B, Fr, C, T)
-            x = x.transpose(0, 2, 1, 3)  # [B, C, Fr, T]
+            x = x.reshape(B, Fr, T, C)
 
-            # 4. Rewrite: NCHW -> NHWC -> NCHW
-            x = x.transpose(0, 2, 3, 1)
+            # 4. Rewrite (NHWC, no transpose)
             x = self.rewrite(x)
-            x = x.transpose(0, 3, 1, 2)
 
-            # 5. GLU: split along channel dim (axis=1 in NCHW)
-            a, b = mx.split(x, 2, axis=1)
+            # 5. GLU: split along channel dim (axis=-1 in NHWC)
+            a, b = mx.split(x, 2, axis=-1)
             x = a * mx.sigmoid(b)
         else:
-            # PyTorch pads input to be divisible by stride
-            le = x.shape[-1]
+            # x is [B, T, C] - already NLC
+
+            # Pad input to be divisible by stride
+            le = x.shape[1]  # Time is axis 1 in NLC
             if le % self.stride != 0:
                 pad_amount = self.stride - (le % self.stride)
-                x = mx.pad(x, [(0, 0), (0, 0), (0, pad_amount)])
+                x = mx.pad(x, [(0, 0), (0, pad_amount), (0, 0)])
 
-            # 1. Conv: NCL -> NLC for MLX
-            x = x.transpose(0, 2, 1)  # [B, T, C]
+            # 1. Conv1d (MLX uses NLC natively)
             x = self.conv(x)
-            x = x.transpose(0, 2, 1)  # [B, C, T]
 
             # 2. GELU
             x = nn.gelu(x)
 
-            # 3. DConv
-            x = x.transpose(0, 2, 1)
+            # 3. DConv (already NLC)
             x = self.dconv(x)
-            x = x.transpose(0, 2, 1)
 
-            # 4. Rewrite
-            x = x.transpose(0, 2, 1)
+            # 4. Rewrite (NLC, no transpose)
             x = self.rewrite(x)
-            x = x.transpose(0, 2, 1)
 
-            # 5. GLU
-            a, b = mx.split(x, 2, axis=1)
+            # 5. GLU: split along channel dim (axis=-1 in NLC)
+            a, b = mx.split(x, 2, axis=-1)
             x = a * mx.sigmoid(b)
 
         return x

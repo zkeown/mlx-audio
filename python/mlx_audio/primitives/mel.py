@@ -27,6 +27,7 @@ from mlx_audio.constants import (
     HTK_MEL_FACTOR,
     HTK_MEL_BASE,
     DEFAULT_N_MELS,
+    FILTERBANK_EPSILON,
 )
 
 # Slaney mel scale constants (from centralized constants module).
@@ -158,8 +159,8 @@ def _compute_mel_filterbank_np(
     # Lower slope: (freq - f_lower) / (f_center - f_lower)
     # Upper slope: (f_upper - freq) / (f_upper - f_center)
     # Add small epsilon to avoid division by zero
-    lower_slope = (freqs - f_lower) / (f_center - f_lower + 1e-10)
-    upper_slope = (f_upper - freqs) / (f_upper - f_center + 1e-10)
+    lower_slope = (freqs - f_lower) / (f_center - f_lower + FILTERBANK_EPSILON)
+    upper_slope = (f_upper - freqs) / (f_upper - f_center + FILTERBANK_EPSILON)
 
     # Triangular filter: min of slopes, clipped to [0, inf)
     # This creates the triangular shape: rises from f_lower to f_center,

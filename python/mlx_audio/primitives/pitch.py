@@ -786,70 +786,91 @@ def pyin(
     # Scale thresholds to practical range
     thresholds = 0.01 + raw_thresholds * 0.79
 
-    # Extract frames and compute CMNDF
-    frames = np.zeros((n_frames, frame_length), dtype=np.float32)
-    for t in range(n_frames):
-        start = t * hop_length
-        end = start + frame_length
-        frames[t] = y_np[start:end]
+    # Extract frames using strided view (vectorized, no loop)
+    strides = (y_np.strides[0] * hop_length, y_np.strides[0])
+    frames = np.lib.stride_tricks.as_strided(
+        y_np,
+        shape=(n_frames, frame_length),
+        strides=strides,
+    ).copy()  # Copy to ensure contiguous memory
 
     cmndf = _cumulative_mean_normalized_difference(
         frames, min_period, max_period
     )
 
-    # For each frame, generate pitch candidates with probabilities
-    # Simplified PYIN: use multiple thresholds and aggregate
-
+    # Vectorized pitch candidate detection across all frames and thresholds
+    # Pre-allocate output arrays
     f0_np = np.zeros(n_frames, dtype=np.float32)
     voiced_np = np.zeros(n_frames, dtype=bool)
     prob_np = np.zeros(n_frames, dtype=np.float32)
 
+    n_lags = cmndf.shape[1]
+
+    # Pre-allocate candidate storage (max candidates = n_thresholds per frame)
+    max_candidates = len(thresholds)
+    all_candidates = np.zeros((n_frames, max_candidates), dtype=np.float32)
+    all_weights = np.zeros((n_frames, max_candidates), dtype=np.float32)
+    n_candidates = np.zeros(n_frames, dtype=np.int32)
+
+    # Vectorized local minimum detection: cmndf[t, tau] < cmndf[t, tau+1]
+    is_local_min = np.zeros((n_frames, n_lags), dtype=bool)
+    is_local_min[:, :-1] = cmndf[:, :-1] < cmndf[:, 1:]
+
+    # For each threshold, find candidates across all frames (vectorized)
+    for thresh_idx, thresh in enumerate(thresholds):
+        # below_thresh[t, tau] = True if cmndf[t, tau] < thresh
+        below_thresh = cmndf < thresh
+
+        # valid_candidate[t, tau] = below_thresh AND is_local_min
+        valid_candidate = below_thresh & is_local_min
+
+        # Find first valid candidate for each frame (argmax finds first True)
+        has_candidate = np.any(valid_candidate, axis=1)
+        first_tau_idx = np.argmax(valid_candidate, axis=1)
+
+        # Get CMNDF values at first candidate positions
+        frame_indices = np.arange(n_frames)
+        cmndf_values = cmndf[frame_indices, first_tau_idx]
+
+        # Convert tau index to frequency
+        periods = min_period + first_tau_idx
+        frequencies = sr / periods
+
+        # Weight by inverse CMNDF (higher weight for lower aperiodicity)
+        weights = 1.0 - cmndf_values
+
+        # Store candidates for frames that have one
+        valid_frames = has_candidate
+        all_candidates[valid_frames, thresh_idx] = frequencies[valid_frames]
+        all_weights[valid_frames, thresh_idx] = weights[valid_frames]
+        n_candidates[valid_frames] += 1
+
+    # Compute weighted median for frames with candidates
     for t in range(n_frames):
-        cmndf_frame = cmndf[t]
-
-        # Collect candidates at different thresholds
-        candidates = []
-        weights = []
-
-        for thresh in thresholds:
-            # Find first minimum below threshold
-            for tau_idx in range(len(cmndf_frame) - 1):
-                if cmndf_frame[tau_idx] < thresh:
-                    if cmndf_frame[tau_idx] < cmndf_frame[tau_idx + 1]:
-                        period = min_period + tau_idx
-                        freq = sr / period
-                        # Weight by inverse of CMNDF value
-                        weight = 1.0 - cmndf_frame[tau_idx]
-                        candidates.append(freq)
-                        weights.append(weight)
-                        break
-
-        if len(candidates) > 0:
-            # Weighted average of candidates
-            candidates = np.array(candidates)
-            weights = np.array(weights)
+        nc = n_candidates[t]
+        if nc > 0:
+            cands = all_candidates[t, :nc]
+            wgts = all_weights[t, :nc]
 
             # Voiced probability = fraction of thresholds that found candidate
-            prob_np[t] = len(candidates) / len(thresholds)
+            prob_np[t] = nc / max_candidates
 
-            # Normalize weights for median calculation
-            weights = weights / np.sum(weights)
-
-            # Use weighted median for robustness
-            sorted_idx = np.argsort(candidates)
-            cum_weights = np.cumsum(weights[sorted_idx])
+            # Normalize weights and compute weighted median
+            wgts = wgts / np.sum(wgts)
+            sorted_idx = np.argsort(cands)
+            cum_weights = np.cumsum(wgts[sorted_idx])
             median_idx = np.searchsorted(cum_weights, 0.5)
-            median_idx = min(median_idx, len(candidates) - 1)
+            median_idx = min(median_idx, nc - 1)
 
-            f0_np[t] = candidates[sorted_idx[median_idx]]
+            f0_np[t] = cands[sorted_idx[median_idx]]
             voiced_np[t] = True
         else:
-            # Check global minimum
-            best_tau = np.argmin(cmndf_frame)
-            if cmndf_frame[best_tau] < 0.5:
+            # Check global minimum (fallback)
+            best_tau = np.argmin(cmndf[t])
+            if cmndf[t, best_tau] < 0.5:
                 period = min_period + best_tau
                 f0_np[t] = sr / period
-                prob_np[t] = 0.5 * (1.0 - cmndf_frame[best_tau])
+                prob_np[t] = 0.5 * (1.0 - cmndf[t, best_tau])
                 voiced_np[t] = True
             else:
                 prob_np[t] = 0.0

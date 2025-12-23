@@ -1,6 +1,9 @@
 """Decoder layers for HTDemucs.
 
 Matches PyTorch demucs.hdemucs.HDecLayer exactly.
+
+OPTIMIZATION: Uses MLX-native NHWC/NLC format internally to avoid transposes.
+Format conversion happens at model boundaries in model.py.
 """
 
 from __future__ import annotations
@@ -21,17 +24,16 @@ class HDecLayer(nn.Module):
         norm1: Identity (not used)
         dconv: DConv - dilated residual block
 
-    For frequency branch (freq=True):
-        - Uses ConvTranspose2d with kernel (K, 1), stride (S, 1)
-        - Input: [B, C, F, T]
+    INTERNAL FORMAT (optimized for MLX):
+        - freq=True: [B, F, T, C] (NHWC format)
+        - freq=False: [B, T, C] (NLC format)
 
-    For time branch (freq=False):
-        - Uses ConvTranspose1d with kernel K, stride S
-        - Input: [B, C, T]
+    NOTE: model.py converts from PyTorch format (NCHW/NCL) at entry
+    and converts back at exit. Layers operate in MLX-native format.
 
     IMPORTANT: The decoder uses length-based trimming to ensure output matches
-    the expected encoder input length. PyTorch stores lengths before each encoder
-    pass and uses them to trim decoder output.
+    the expected encoder input length. PyTorch stores lengths before each
+    encoder pass and uses them to trim decoder output.
     """
 
     def __init__(
@@ -66,7 +68,7 @@ class HDecLayer(nn.Module):
                 chin, chout,
                 kernel_size=(kernel_size, 1),
                 stride=(stride, 1),
-                padding=(0, 0),  # No padding, we trim after
+                padding=(0, 0),
             )
             # Rewrite conv: 3x3 that doubles channels for GLU
             self.rewrite = nn.Conv2d(
@@ -99,16 +101,16 @@ class HDecLayer(nn.Module):
         """Forward pass.
 
         Args:
-            x: Input tensor from previous decoder layer
-                - freq=True: [B, C, F, T] (NCHW format)
-                - freq=False: [B, C, T] (NCL format)
+            x: Input tensor from previous decoder layer (NHWC/NLC format)
+                - freq=True: [B, F, T, C] (NHWC format)
+                - freq=False: [B, T, C] (NLC format)
             skip: Skip connection from corresponding encoder layer
             length: Expected output time dimension length (from encoder input)
 
         Returns:
             Tuple of (output, pre_output):
                 - output: Upsampled and trimmed output
-                - pre_output: Output before transposed conv (used for branch merge)
+                - pre_output: Output before transposed conv (for branch merge)
         """
         # PyTorch order:
         # 1. x = x + skip
@@ -118,81 +120,74 @@ class HDecLayer(nn.Module):
         # 5. Trim z to expected length
         # 6. gelu(z) if not last
 
-        # 1. Add skip connection
-        if skip is not None:
-            # Handle length mismatch by trimming to shorter length
-            if self.freq:
-                if x.shape[2] != skip.shape[2]:
-                    min_f = min(x.shape[2], skip.shape[2])
-                    x = x[:, :, :min_f, :]
-                    skip = skip[:, :, :min_f, :]
-            else:
-                if x.shape[2] != skip.shape[2]:
-                    min_t = min(x.shape[2], skip.shape[2])
-                    x = x[:, :, :min_t]
-                    skip = skip[:, :, :min_t]
-            x = x + skip
-
         if self.freq:
-            B, C, Fr, T = x.shape
+            # x is [B, F, T, C] - NHWC format
 
-            # 2. Rewrite -> GLU: NCHW -> NHWC -> NCHW
-            x = x.transpose(0, 2, 3, 1)
+            # 1. Add skip connection
+            if skip is not None:
+                # Handle length mismatch by trimming to shorter length
+                # In NHWC: F is axis 1
+                if x.shape[1] != skip.shape[1]:
+                    min_f = min(x.shape[1], skip.shape[1])
+                    x = x[:, :min_f, :, :]
+                    skip = skip[:, :min_f, :, :]
+                x = x + skip
+
+            B, Fr, T, C = x.shape
+
+            # 2. Rewrite -> GLU (no transpose needed, already NHWC)
             x = self.rewrite(x)
-            x = x.transpose(0, 3, 1, 2)
-            a, b = mx.split(x, 2, axis=1)
+            a, b = mx.split(x, 2, axis=-1)
             y = a * mx.sigmoid(b)
 
             # 3. DConv: collapse freq into batch
-            B, C, Fr, T = y.shape
-            y = y.transpose(0, 2, 1, 3)  # [B, Fr, C, T]
-            y = y.reshape(B * Fr, C, T)  # [B*Fr, C, T]
-            y = y.transpose(0, 2, 1)  # NCL -> NLC
+            # [B, F, T, C] -> [B*F, T, C] - already NLC!
+            _, Fr2, T2, C2 = y.shape
+            y = y.reshape(B * Fr2, T2, C2)
             y = self.dconv(y)
-            y = y.transpose(0, 2, 1)  # NLC -> NCL
-            y = y.reshape(B, Fr, C, T)
-            y = y.transpose(0, 2, 1, 3)  # [B, C, Fr, T]
+            y = y.reshape(B, Fr2, T2, C2)
 
             # Save pre-output for branch merge
             pre = y
 
-            # 4. ConvTranspose2d: NCHW -> NHWC -> NCHW
-            y = y.transpose(0, 2, 3, 1)
+            # 4. ConvTranspose2d (no transpose, already NHWC)
             z = self.conv_tr(y)
-            z = z.transpose(0, 3, 1, 2)
 
-            # 5. Trim: z[..., pad:-pad, :] for freq
-            # PyTorch uses self.pad on both sides of freq dimension
+            # 5. Trim: z[:, pad:-pad, :, :] for freq (F is axis 1 in NHWC)
             if self.pad > 0:
-                z = z[:, :, self.pad:-self.pad, :]
+                z = z[:, self.pad:-self.pad, :, :]
 
             # 6. GELU if not last
             if not self.last:
                 z = nn.gelu(z)
         else:
-            # 2. Rewrite -> GLU
-            x = x.transpose(0, 2, 1)  # NCL -> NLC
+            # x is [B, T, C] - NLC format
+
+            # 1. Add skip connection
+            if skip is not None:
+                # Handle length mismatch (T is axis 1 in NLC)
+                if x.shape[1] != skip.shape[1]:
+                    min_t = min(x.shape[1], skip.shape[1])
+                    x = x[:, :min_t, :]
+                    skip = skip[:, :min_t, :]
+                x = x + skip
+
+            # 2. Rewrite -> GLU (no transpose, already NLC)
             x = self.rewrite(x)
-            x = x.transpose(0, 2, 1)  # NLC -> NCL
-            a, b = mx.split(x, 2, axis=1)
+            a, b = mx.split(x, 2, axis=-1)
             y = a * mx.sigmoid(b)
 
-            # 3. DConv
-            y = y.transpose(0, 2, 1)
+            # 3. DConv (already NLC)
             y = self.dconv(y)
-            y = y.transpose(0, 2, 1)
 
             # Save pre-output for branch merge
             pre = y
 
-            # 4. ConvTranspose1d
-            y = y.transpose(0, 2, 1)
+            # 4. ConvTranspose1d (no transpose, already NLC)
             z = self.conv_tr(y)
-            z = z.transpose(0, 2, 1)
 
-            # 5. Trim: z[..., pad:pad+length] for time
-            # PyTorch trims to exact expected length
-            z = z[:, :, self.pad:self.pad + length]
+            # 5. Trim: z[:, pad:pad+length, :] for time (T is axis 1 in NLC)
+            z = z[:, self.pad:self.pad + length, :]
 
             # 6. GELU if not last
             if not self.last:

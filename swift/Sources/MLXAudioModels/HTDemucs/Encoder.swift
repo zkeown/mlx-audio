@@ -1,5 +1,8 @@
 // Encoder.swift
 // Encoder layers for HTDemucs.
+//
+// OPTIMIZATION: Uses MLX-native NHWC/NLC format internally to avoid transposes.
+// Format conversion happens at model boundaries in HTDemucs.swift.
 
 import Foundation
 @preconcurrency import MLX
@@ -14,13 +17,12 @@ import MLXNN
 /// - rewrite: Conv2d (freq) or Conv1d (time) - GLU rewrite
 /// - dconv: DConv - dilated residual block
 ///
-/// For frequency branch (freq=true):
-/// - Uses Conv2d with kernel (K, 1), stride (S, 1)
-/// - Input: `[B, C, F, T]` (batch, channels, freq bins, time frames)
+/// INTERNAL FORMAT (optimized for MLX):
+/// - freq=true: `[B, F, T, C]` (NHWC format)
+/// - freq=false: `[B, T, C]` (NLC format)
 ///
-/// For time branch (freq=false):
-/// - Uses Conv1d with kernel K, stride S
-/// - Input: `[B, C, T]` (batch, channels, time samples)
+/// NOTE: model.py converts from PyTorch format (NCHW/NCL) at entry
+/// and converts back at exit. Layers operate in MLX-native format.
 public class HEncLayer: Module, @unchecked Sendable {
 
     let chin: Int
@@ -29,13 +31,13 @@ public class HEncLayer: Module, @unchecked Sendable {
     let stride: Int
     let freq: Bool
 
-    // Frequency branch (Conv2d)
-    var conv2d: Conv2d?
-    var rewrite2d: Conv2d?
+    // Main conv layer - stores Conv2d for freq, Conv1d for time
+    // Key "conv" matches Python weight keys
+    let conv: Module
 
-    // Time branch (Conv1d)
-    var conv1d: Conv1d?
-    var rewrite1d: Conv1d?
+    // Rewrite conv layer - stores Conv2d for freq, Conv1d for time
+    // Key "rewrite" matches Python weight keys
+    let rewrite: Module
 
     // Shared
     let dconv: DConv
@@ -71,7 +73,7 @@ public class HEncLayer: Module, @unchecked Sendable {
 
         if freq {
             // Frequency branch uses Conv2d
-            self.conv2d = Conv2d(
+            self.conv = Conv2d(
                 inputChannels: chin,
                 outputChannels: chout,
                 kernelSize: .init((kernelSize, 1)),
@@ -79,16 +81,14 @@ public class HEncLayer: Module, @unchecked Sendable {
                 padding: .init((pad, 0))
             )
             // Rewrite conv: 1x1 that doubles channels for GLU
-            self.rewrite2d = Conv2d(
+            self.rewrite = Conv2d(
                 inputChannels: chout,
                 outputChannels: chout * 2,
                 kernelSize: 1
             )
-            self.conv1d = nil
-            self.rewrite1d = nil
         } else {
             // Time branch uses Conv1d
-            self.conv1d = Conv1d(
+            self.conv = Conv1d(
                 inputChannels: chin,
                 outputChannels: chout,
                 kernelSize: kernelSize,
@@ -96,13 +96,11 @@ public class HEncLayer: Module, @unchecked Sendable {
                 padding: pad
             )
             // Rewrite conv: 1x1 that doubles channels for GLU
-            self.rewrite1d = Conv1d(
+            self.rewrite = Conv1d(
                 inputChannels: chout,
                 outputChannels: chout * 2,
                 kernelSize: 1
             )
-            self.conv2d = nil
-            self.rewrite2d = nil
         }
 
         // DConv residual block
@@ -116,9 +114,9 @@ public class HEncLayer: Module, @unchecked Sendable {
 
     /// Forward pass.
     ///
-    /// - Parameter x: Input tensor
-    ///   - freq=true: `[B, C, F, T]` (NCHW format)
-    ///   - freq=false: `[B, C, T]` (NCL format)
+    /// - Parameter x: Input tensor (NHWC/NLC format for MLX efficiency)
+    ///   - freq=true: `[B, F, T, C]` (NHWC format)
+    ///   - freq=false: `[B, T, C]` (NLC format)
     /// - Returns: Downsampled output with same format as input.
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
         if freq {
@@ -129,74 +127,67 @@ public class HEncLayer: Module, @unchecked Sendable {
     }
 
     /// Frequency branch forward pass.
+    /// Input: [B, F, T, C] (NHWC) - no transposes needed!
     private func forwardFreq(_ input: MLXArray) -> MLXArray {
         var x = input
+        let conv2d = conv as! Conv2d
+        let rewrite2d = rewrite as! Conv2d
 
-        // 1. Conv: NCHW -> NHWC for MLX Conv2d
-        x = x.transposed(0, 2, 3, 1)  // [B, F, T, C]
-        x = conv2d!(x)
-        x = x.transposed(0, 3, 1, 2)  // back to [B, C, F, T]
+        // 1. Conv2d (MLX uses NHWC natively, no transpose needed)
+        x = conv2d(x)
 
         // 2. GELU
         x = gelu(x)
 
-        // 3. DConv: collapse freq into batch, keep C channels
+        // 3. DConv: collapse freq into batch
+        // [B, F, T, C] -> [B*F, T, C] - already NLC for DConv!
         let shape = x.shape
         let B = shape[0]
-        let C = shape[1]
-        let Fr = shape[2]
-        let T = shape[3]
+        let Fr = shape[1]
+        let T = shape[2]
+        let C = shape[3]
 
-        x = x.transposed(0, 2, 1, 3)  // [B, Fr, C, T]
-        x = x.reshaped([B * Fr, C, T])  // [B*Fr, C, T]
-        x = x.transposed(0, 2, 1)  // NCL -> NLC for MLX
+        x = x.reshaped([B * Fr, T, C])
         x = dconv(x)
-        x = x.transposed(0, 2, 1)  // NLC -> NCL
-        x = x.reshaped([B, Fr, C, T])
-        x = x.transposed(0, 2, 1, 3)  // [B, C, Fr, T]
+        x = x.reshaped([B, Fr, T, C])
 
-        // 4. Rewrite: NCHW -> NHWC -> NCHW
-        x = x.transposed(0, 2, 3, 1)
-        x = rewrite2d!(x)
-        x = x.transposed(0, 3, 1, 2)
+        // 4. Rewrite (NHWC, no transpose)
+        x = rewrite2d(x)
 
-        // 5. GLU: split along channel dim (axis=1 in NCHW)
-        x = glu(x, axis: 1)
+        // 5. GLU: split along channel dim (axis=-1 in NHWC)
+        x = glu(x, axis: -1)
 
         return x
     }
 
     /// Time branch forward pass.
+    /// Input: [B, T, C] (NLC) - no transposes needed!
     private func forwardTime(_ input: MLXArray) -> MLXArray {
         var x = input
+        let conv1d = conv as! Conv1d
+        let rewrite1d = rewrite as! Conv1d
 
-        // Pad input to be divisible by stride
-        let le = x.shape[x.ndim - 1]
+        // Pad input to be divisible by stride (T is axis 1 in NLC)
+        let le = x.shape[1]
         if le % stride != 0 {
             let padAmount = stride - (le % stride)
-            x = MLX.padded(x, widths: [[0, 0], [0, 0], [0, padAmount]])
+            x = MLX.padded(x, widths: [[0, 0], [0, padAmount], [0, 0]])
         }
 
-        // 1. Conv: NCL -> NLC for MLX
-        x = x.transposed(0, 2, 1)  // [B, T, C]
-        x = conv1d!(x)
-        x = x.transposed(0, 2, 1)  // [B, C, T]
+        // 1. Conv1d (MLX uses NLC natively, no transpose needed)
+        x = conv1d(x)
 
         // 2. GELU
         x = gelu(x)
 
-        // 3. DConv
-        x = x.transposed(0, 2, 1)
+        // 3. DConv (already NLC)
         x = dconv(x)
-        x = x.transposed(0, 2, 1)
 
-        // 4. Rewrite
-        x = x.transposed(0, 2, 1)
-        x = rewrite1d!(x)
-        x = x.transposed(0, 2, 1)
+        // 4. Rewrite (NLC, no transpose)
+        x = rewrite1d(x)
 
-        // 5. GLU
-        x = glu(x, axis: 1)
+        // 5. GLU: split along channel dim (axis=-1 in NLC)
+        x = glu(x, axis: -1)
 
         return x
     }

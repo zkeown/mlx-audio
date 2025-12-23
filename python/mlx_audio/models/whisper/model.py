@@ -14,7 +14,7 @@ from mlx_audio.models.whisper.layers.encoder import AudioEncoder
 from mlx_audio.models.whisper.layers.decoder import TextDecoder
 
 if TYPE_CHECKING:
-    pass
+    from mlx_audio.models.whisper.kv_cache import KVCache
 
 
 class Whisper(nn.Module):
@@ -70,19 +70,18 @@ class Whisper(nn.Module):
         self,
         tokens: mx.array,
         audio_features: mx.array,
-        kv_cache: list[tuple[mx.array, mx.array]] | None = None,
-    ) -> tuple[mx.array, list[tuple[mx.array, mx.array]]]:
+        kv_cache: "KVCache | None" = None,
+    ) -> mx.array:
         """Decode tokens to logits.
 
         Args:
             tokens: Input token IDs [B, T]
             audio_features: Encoder output [B, S, D]
-            kv_cache: Cached key/value pairs for incremental decoding
+            kv_cache: Pre-allocated KV cache for efficient incremental
+                decoding. Updated in-place.
 
         Returns:
-            Tuple of:
-                - Logits [B, T, n_vocab]
-                - Updated KV cache
+            Logits [B, T, n_vocab]
         """
         return self.decoder(tokens, audio_features, kv_cache)
 
@@ -101,7 +100,7 @@ class Whisper(nn.Module):
             Logits [B, L, n_vocab]
         """
         audio_features = self.encode(mel)
-        logits, _ = self.decode(tokens, audio_features)
+        logits = self.decode(tokens, audio_features)
         return logits
 
     def detect_language(
@@ -124,8 +123,8 @@ class Whisper(nn.Module):
         # Get initial tokens (just SOT)
         sot_token = mx.array([[tokenizer.sot]])
 
-        # Get logits for next token
-        logits, _ = self.decode(sot_token, audio_features)
+        # Get logits for next token (no cache needed for single token)
+        logits = self.decode(sot_token, audio_features)
 
         # Get probabilities over language tokens
         lang_tokens = tokenizer.all_language_tokens

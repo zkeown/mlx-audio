@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Type
@@ -19,7 +20,7 @@ class ModelCache:
 
     Features:
     - Leverages HuggingFace hub's revision-based caching
-    - Maintains in-memory LRU cache of loaded models
+    - Maintains in-memory LRU cache of loaded models (O(1) eviction)
     - Supports explicit cache management (clear, preload)
     - Thread-safe model loading
 
@@ -33,13 +34,30 @@ class ModelCache:
     )
     max_memory_models: int = 3
 
-    _loaded_models: dict[str, Any] = field(default_factory=dict, repr=False)
-    _load_order: list[str] = field(default_factory=list, repr=False)
+    # OrderedDict provides O(1) LRU operations via move_to_end() and popitem()
+    _loaded_models: OrderedDict[str, Any] = field(
+        default_factory=OrderedDict, repr=False
+    )
+    # Global lock for cache structure modifications
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Per-model locks enable concurrent loading of different models
+    _model_locks: dict[str, threading.Lock] = field(
+        default_factory=dict, repr=False
+    )
+    _model_locks_lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False
+    )
 
     def __post_init__(self):
         self.cache_dir = Path(self.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_model_lock(self, cache_key: str) -> threading.Lock:
+        """Get or create a lock for a specific model (thread-safe)."""
+        with self._model_locks_lock:
+            if cache_key not in self._model_locks:
+                self._model_locks[cache_key] = threading.Lock()
+            return self._model_locks[cache_key]
 
     def get_model_path(
         self,
@@ -116,30 +134,44 @@ class ModelCache:
         """
         cache_key = self._make_cache_key(model_id, revision, load_kwargs)
 
+        # Quick check with global lock (fast path for cached models)
         with self._lock:
-            # Check memory cache
             if not force_reload and cache_key in self._loaded_models:
-                # Move to end (most recently used)
-                self._load_order.remove(cache_key)
-                self._load_order.append(cache_key)
+                # Move to end (most recently used) - O(1) with OrderedDict
+                self._loaded_models.move_to_end(cache_key)
                 return self._loaded_models[cache_key]
 
-            # Get model path (download if needed)
+        # Per-model lock enables concurrent loading of different models
+        model_lock = self._get_model_lock(cache_key)
+        with model_lock:
+            # Double-check after acquiring lock (another thread may have loaded)
+            with self._lock:
+                if not force_reload and cache_key in self._loaded_models:
+                    self._loaded_models.move_to_end(cache_key)
+                    return self._loaded_models[cache_key]
+
+            # Get model path (download if needed) - concurrent for different models
             model_path = self.get_model_path(model_id, revision=revision)
 
-            # Load model
+            # Load model - can run concurrently for different models
             if hasattr(model_class, "from_pretrained"):
                 model = model_class.from_pretrained(model_path, **load_kwargs)
             else:
                 model = model_class(model_path, **load_kwargs)
 
-            # Add to cache with LRU eviction
-            if len(self._loaded_models) >= self.max_memory_models:
-                oldest_key = self._load_order.pop(0)
-                del self._loaded_models[oldest_key]
+            # Add to cache with LRU eviction (requires global lock)
+            with self._lock:
+                # Check again in case it was added while we were loading
+                if cache_key in self._loaded_models:
+                    # Another thread beat us, use their version
+                    self._loaded_models.move_to_end(cache_key)
+                    return self._loaded_models[cache_key]
 
-            self._loaded_models[cache_key] = model
-            self._load_order.append(cache_key)
+                # Evict oldest if at capacity - O(1) with OrderedDict
+                if len(self._loaded_models) >= self.max_memory_models:
+                    self._loaded_models.popitem(last=False)
+
+                self._loaded_models[cache_key] = model
 
             return model
 
@@ -158,7 +190,6 @@ class ModelCache:
         """Unload all models from memory (keeps disk cache)."""
         with self._lock:
             self._loaded_models.clear()
-            self._load_order.clear()
 
     def clear_disk_cache(self, repo_id: str | None = None) -> None:
         """Remove cached model files from disk.

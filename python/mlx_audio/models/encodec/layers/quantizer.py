@@ -2,8 +2,30 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import mlx.core as mx
 import mlx.nn as nn
+
+
+@lru_cache(maxsize=8)
+def _get_compiled_vq_encode():
+    """Get compiled VQ encode function.
+
+    Using mx.compile() enables graph-level optimizations for the distance
+    computation, fusing norm, matmul, and argmin operations.
+    """
+
+    def _vq_encode_core(flat_x: mx.array, codebook: mx.array) -> mx.array:
+        # Compute distances to all codebook entries
+        # ||x - e||^2 = ||x||^2 + ||e||^2 - 2*x.e
+        x_norm_sq = mx.sum(flat_x ** 2, axis=-1, keepdims=True)  # [B*T, 1]
+        e_norm_sq = mx.sum(codebook ** 2, axis=-1, keepdims=True).T  # [1, K]
+        dot_product = flat_x @ codebook.T  # [B*T, K]
+        distances = x_norm_sq + e_norm_sq - 2 * dot_product  # [B*T, K]
+        return mx.argmin(distances, axis=-1)  # [B*T]
+
+    return mx.compile(_vq_encode_core)
 
 
 class VectorQuantizer(nn.Module):
@@ -38,6 +60,8 @@ class VectorQuantizer(nn.Module):
     def encode(self, x: mx.array) -> mx.array:
         """Encode continuous vectors to discrete codes.
 
+        Uses compiled distance computation for better performance.
+
         Args:
             x: Input embeddings [B, T, D]
 
@@ -48,18 +72,9 @@ class VectorQuantizer(nn.Module):
         shape = x.shape
         flat_x = x.reshape(-1, self.codebook_dim)  # [B*T, D]
 
-        # Compute distances to all codebook entries
-        # ||x - e||^2 = ||x||^2 + ||e||^2 - 2*x.e
-        codebook = self.embedding.weight  # [K, D]
-
-        x_norm_sq = mx.sum(flat_x ** 2, axis=-1, keepdims=True)  # [B*T, 1]
-        e_norm_sq = mx.sum(codebook ** 2, axis=-1, keepdims=True).T  # [1, K]
-        dot_product = flat_x @ codebook.T  # [B*T, K]
-
-        distances = x_norm_sq + e_norm_sq - 2 * dot_product  # [B*T, K]
-
-        # Find nearest codebook entry
-        indices = mx.argmin(distances, axis=-1)  # [B*T]
+        # Use compiled encode function for fused distance computation
+        encode_fn = _get_compiled_vq_encode()
+        indices = encode_fn(flat_x, self.embedding.weight)
 
         # Reshape back to [B, T]
         return indices.reshape(shape[:-1])

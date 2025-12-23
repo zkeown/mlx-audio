@@ -68,30 +68,10 @@ public enum AudioTask: String, CaseIterable {
 // HTDemucs: See HTDemucs/ subdirectory for source separation implementation.
 // Whisper: See Whisper/ subdirectory for speech transcription implementation.
 
-/// Placeholder for MusicGen audio generation model.
-///
-/// MusicGen is a transformer-based model for text-to-music generation.
-public struct MusicGen {
-    public static let modelName = "musicgen"
-
-    /// Supported model sizes.
-    public enum Size: String, CaseIterable {
-        case small, medium, large
-    }
-
-    public init() {}
-
-    /// Generate audio from text prompt.
-    ///
-    /// - Parameters:
-    ///   - prompt: Text description of desired audio.
-    ///   - duration: Duration in seconds.
-    /// - Returns: Generated audio array.
-    public func generate(prompt: String, duration: Float) throws -> MLXArray {
-        // Placeholder - actual implementation requires model weights
-        fatalError("MusicGen model not yet implemented")
-    }
-}
+// MARK: - MusicGen
+// The full MusicGen implementation is in the MusicGen/ subdirectory.
+// Use: MusicGen, MusicGenConfig, etc.
+// See MusicGen/MusicGen.swift for the main model class.
 
 // MARK: - CLAP
 // The full CLAP implementation is in the CLAP/ subdirectory.
@@ -104,21 +84,13 @@ public struct MusicGen {
 //   let textEmbed = try model.encodeText("a dog barking")
 //   let similarity = model.similarity(audioEmbeds: audioEmbed, textEmbeds: textEmbed)
 
-/// Placeholder for EnCodec audio codec.
-///
-/// EnCodec is a neural audio codec for high-quality audio compression.
-public struct EnCodec {
-    public static let modelName = "encodec"
-
-    public init() {}
-
-    /// Encode audio to tokens.
-    public func encode(_ audio: MLXArray) throws -> MLXArray {
-        fatalError("EnCodec model not yet implemented")
-    }
-
-    /// Decode tokens to audio.
-    public func decode(_ tokens: MLXArray) throws -> MLXArray {
-        fatalError("EnCodec model not yet implemented")
-    }
-}
+// MARK: - EnCodec
+// The full EnCodec implementation is in the EnCodec/ subdirectory.
+// Use: EnCodec, EnCodecConfig, etc.
+// See EnCodec/EnCodec.swift for the main model class.
+//
+// Quick usage:
+//   let config = EnCodecConfig.encodec_24khz()
+//   let model = EnCodec(config: config)
+//   let codes = model.encode(audio)
+//   let reconstructed = model.decode(codes)

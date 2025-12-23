@@ -12,6 +12,7 @@ import mlx.core as mx
 import numpy as np
 
 from ._validation import validate_non_negative, validate_positive
+from mlx_audio.constants import FILTERBANK_EPSILON
 
 
 def hz_to_bark(frequencies: np.ndarray, formula: str = "zwicker") -> np.ndarray:
@@ -141,8 +142,8 @@ def _compute_bark_filterbank_np(
     f_upper = hz_points[2:, np.newaxis]
     freqs = fft_freqs[np.newaxis, :]
 
-    lower_slope = (freqs - f_lower) / (f_center - f_lower + 1e-10)
-    upper_slope = (f_upper - freqs) / (f_upper - f_center + 1e-10)
+    lower_slope = (freqs - f_lower) / (f_center - f_lower + FILTERBANK_EPSILON)
+    upper_slope = (f_upper - freqs) / (f_upper - f_center + FILTERBANK_EPSILON)
 
     filterbank = np.maximum(0, np.minimum(lower_slope, upper_slope)).astype(np.float32)
 
@@ -255,8 +256,8 @@ def _compute_linear_filterbank_np(
     f_upper = hz_points[2:, np.newaxis]
     freqs = fft_freqs[np.newaxis, :]
 
-    lower_slope = (freqs - f_lower) / (f_center - f_lower + 1e-10)
-    upper_slope = (f_upper - freqs) / (f_upper - f_center + 1e-10)
+    lower_slope = (freqs - f_lower) / (f_center - f_lower + FILTERBANK_EPSILON)
+    upper_slope = (f_upper - freqs) / (f_upper - f_center + FILTERBANK_EPSILON)
 
     filterbank = np.maximum(0, np.minimum(lower_slope, upper_slope)).astype(np.float32)
 

@@ -1,5 +1,8 @@
 // HTDemucs.swift
 // HTDemucs model implementation for source separation.
+//
+// OPTIMIZATION: Uses MLX-native NHWC/NLC format internally to avoid transposes.
+// Format conversion happens at model boundaries.
 
 import Foundation
 @preconcurrency import MLX
@@ -226,13 +229,20 @@ public class HTDemucs: Module, @unchecked Sendable {
         let mixStd = MLX.sqrt(inputMix.variance(axes: [1, 2], keepDims: true)) + 1e-5
         let mixNorm = (inputMix - mixMean) / mixStd
 
+        // ===== FORMAT CONVERSION: NCHW/NCL -> NHWC/NLC =====
+        // Convert to MLX-native format ONCE at entry (avoids ~124 transposes)
+        // Freq: [B, C, F, T] -> [B, F, T, C]
+        var x = freqIn.transposed(0, 2, 3, 1)
+        // Time: [B, C, T] -> [B, T, C]
+        var xt = mixNorm.transposed(0, 2, 1)
+
         // Encode frequency branch
         var freqLengths: [Int] = []
         var freqSkips: [MLXArray] = []
-        var x = freqIn
 
         for (idx, enc) in encoder.enumerated() {
-            freqLengths.append(x.shape[x.ndim - 1])
+            // In NHWC, T is at axis 2
+            freqLengths.append(x.shape[2])
             x = enc(x)
 
             // Add frequency embedding after first encoder
@@ -240,7 +250,8 @@ public class HTDemucs: Module, @unchecked Sendable {
                 if cachedFreqEmb == nil {
                     let frs = MLXArray(0..<nFreqs)
                     var emb = freq_emb(frs)  // [F, C]
-                    emb = emb.T.expandedDimensions(axes: [0, 3])  // [1, C, F, 1]
+                    // For NHWC format: [1, F, 1, C]
+                    emb = emb.expandedDimensions(axes: [0, 2])  // [1, F, 1, C]
                     cachedFreqEmb = emb
                 }
                 x = x + config.freq_emb * cachedFreqEmb!
@@ -252,57 +263,56 @@ public class HTDemucs: Module, @unchecked Sendable {
         // Encode time branch
         var timeLengths: [Int] = []
         var timeSkips: [MLXArray] = []
-        var xt = mixNorm
 
         for enc in tencoder {
-            timeLengths.append(xt.shape[xt.ndim - 1])
+            // In NLC, T is at axis 1
+            timeLengths.append(xt.shape[1])
             xt = enc(xt)
             timeSkips.append(xt)
         }
 
         // Channel upsample before transformer
+        // x is [B, F, T, C] in NHWC format
         let Bx = x.shape[0]
-        let Cx = x.shape[1]
-        let Fx = x.shape[2]
-        let Tx = x.shape[3]
+        let Fx = x.shape[1]
+        let Tx = x.shape[2]
+        let Cx = x.shape[3]
 
-        // Flatten freq: [B, C, F, T] -> [B, C, F*T]
-        var xFlat = x.reshaped([Bx, Cx, Fx * Tx])
+        // Flatten freq: [B, F, T, C] -> [B, F*T, C] (already NLC!)
+        var xFlat = x.reshaped([Bx, Fx * Tx, Cx])
 
-        // Upsample channels (Conv1d needs NLC format)
-        xFlat = xFlat.transposed(0, 2, 1)
+        // Upsample channels (Conv1d in NLC format, no transpose needed)
         xFlat = channel_upsampler(xFlat)
-        xFlat = xFlat.transposed(0, 2, 1)
 
-        // Unflatten back to 4D
-        x = xFlat.reshaped([Bx, -1, Fx, Tx])
+        // Unflatten back to 4D: [B, F*T, C'] -> [B, F, T, C']
+        x = xFlat.reshaped([Bx, Fx, Tx, -1])
 
-        // Upsample time channels
-        xt = xt.transposed(0, 2, 1)
+        // Upsample time channels (already NLC, no transpose needed)
         xt = channel_upsampler_t(xt)
-        xt = xt.transposed(0, 2, 1)
 
         // Cross-domain transformer
-        let transformerOutput = crosstransformer(freq: x, time: xt)
-        x = transformerOutput.freq
-        xt = transformerOutput.time
+        // Transformer expects NCHW format, convert temporarily
+        let xNCHW = x.transposed(0, 3, 1, 2)  // [B, F, T, C] -> [B, C, F, T]
+        let xtNCL = xt.transposed(0, 2, 1)   // [B, T, C] -> [B, C, T]
+        let transformerOutput = crosstransformer(freq: xNCHW, time: xtNCL)
+        // Convert back to NHWC/NLC
+        x = transformerOutput.freq.transposed(0, 2, 3, 1)  // [B, C, F, T] -> [B, F, T, C]
+        xt = transformerOutput.time.transposed(0, 2, 1)   // [B, C, T] -> [B, T, C]
 
-        // Flatten freq for downsample
-        xFlat = x.reshaped([Bx, -1, Fx * Tx])
+        // Flatten freq for downsample: [B, F, T, C] -> [B, F*T, C]
+        xFlat = x.reshaped([Bx, Fx * Tx, -1])
 
-        // Downsample channels
-        xFlat = xFlat.transposed(0, 2, 1)
+        // Downsample channels (already NLC, no transpose needed)
         xFlat = channel_downsampler(xFlat)
-        xFlat = xFlat.transposed(0, 2, 1)
 
-        xt = xt.transposed(0, 2, 1)
+        // Downsample time channels (already NLC, no transpose needed)
         xt = channel_downsampler_t(xt)
-        xt = xt.transposed(0, 2, 1)
 
-        // Unflatten back to 4D
-        x = xFlat.reshaped([Bx, Cx, Fx, Tx])
+        // Unflatten back to 4D: [B, F*T, C] -> [B, F, T, C]
+        x = xFlat.reshaped([Bx, Fx, Tx, Cx])
 
         // Decode frequency branch (with skips, reversed order)
+        // x is in NHWC format: [B, F, T, C]
         let reversedFreqSkips = freqSkips.reversed()
         let reversedFreqLengths = freqLengths.reversed()
         for (idx, dec) in decoder.enumerated() {
@@ -313,6 +323,7 @@ public class HTDemucs: Module, @unchecked Sendable {
         }
 
         // Decode time branch (with skips, reversed order)
+        // xt is in NLC format: [B, T, C]
         let reversedTimeSkips = timeSkips.reversed()
         let reversedTimeLengths = timeLengths.reversed()
         for (idx, dec) in tdecoder.enumerated() {
@@ -321,6 +332,13 @@ public class HTDemucs: Module, @unchecked Sendable {
             let result = dec(xt, skip: skip, length: length)
             xt = result.output
         }
+
+        // ===== FORMAT CONVERSION: NHWC/NLC -> NCHW/NCL =====
+        // Convert back to PyTorch format for output processing
+        // Freq: [B, F, T, C] -> [B, C, F, T]
+        x = x.transposed(0, 3, 1, 2)
+        // Time: [B, T, C] -> [B, C, T]
+        xt = xt.transposed(0, 2, 1)
 
         // Process frequency branch output
         let FOut = x.shape[2]

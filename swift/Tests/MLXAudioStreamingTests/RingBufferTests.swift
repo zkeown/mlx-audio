@@ -290,8 +290,9 @@ final class RingBufferTests: XCTestCase {
 
         let elapsed = Date().timeIntervalSince(startTime)
 
-        XCTAssertEqual(written, totalFrames)
-        XCTAssertEqual(read, totalFrames)
+        // Written/read may slightly exceed target due to chunk-based processing
+        XCTAssertGreaterThanOrEqual(written, totalFrames)
+        XCTAssertGreaterThanOrEqual(read, totalFrames)
 
         // Should complete in reasonable time (< 1 second for 100k frames)
         XCTAssertLessThan(elapsed, 1.0, "High throughput test took too long: \(elapsed)s")

@@ -251,6 +251,22 @@ def _load_audio(
     return audio_array, sample_rate
 
 
+def _get_roberta_tokenizer():
+    """Get cached RoBERTa tokenizer (lazy-loaded on first call)."""
+    try:
+        from transformers import RobertaTokenizer
+    except ImportError:
+        raise ImportError(
+            "transformers is required for text tokenization. "
+            "Install with: pip install transformers"
+        )
+    return RobertaTokenizer.from_pretrained("roberta-base")
+
+
+# Module-level cached tokenizer (loaded once on first use)
+_ROBERTA_TOKENIZER = None
+
+
 def _tokenize_text(texts: list[str], max_length: int = 77) -> tuple["mx.array", "mx.array"]:
     """Tokenize text using RoBERTa tokenizer.
 
@@ -263,16 +279,11 @@ def _tokenize_text(texts: list[str], max_length: int = 77) -> tuple["mx.array", 
     """
     import mlx.core as mx
 
-    try:
-        from transformers import RobertaTokenizer
-    except ImportError:
-        raise ImportError(
-            "transformers is required for text tokenization. "
-            "Install with: pip install transformers"
-        )
+    global _ROBERTA_TOKENIZER
+    if _ROBERTA_TOKENIZER is None:
+        _ROBERTA_TOKENIZER = _get_roberta_tokenizer()
 
-    # Load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+    tokenizer = _ROBERTA_TOKENIZER
 
     # Tokenize
     encoded = tokenizer(

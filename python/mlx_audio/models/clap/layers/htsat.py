@@ -102,7 +102,7 @@ def interpolate_2d(
             + val_11 * wy * wx
         )
     else:
-        # Bicubic interpolation using Keys kernel
+        # Bicubic interpolation using Keys kernel (vectorized)
         # For each target pixel, we sample 4x4 source pixels
         y_floor = mx.floor(y_coords).astype(mx.int32)
         x_floor = mx.floor(x_coords).astype(mx.int32)
@@ -110,32 +110,54 @@ def interpolate_2d(
         ty = y_coords - y_floor.astype(mx.float32)
         tx = x_coords - x_floor.astype(mx.float32)
 
-        # Get 4 y indices (clamped to valid range)
-        y_indices = []
-        for offset in [-1, 0, 1, 2]:
-            idx = mx.clip(y_floor + offset, 0, H - 1)
-            y_indices.append(idx)
+        # Vectorized index generation: offsets broadcast with floor values
+        offsets = mx.array([-1, 0, 1, 2])  # [4]
+        # y_floor: [target_H], offsets: [4] -> y_indices: [4, target_H]
+        y_indices = mx.clip(y_floor[None, :] + offsets[:, None], 0, H - 1)
+        # x_floor: [target_W], offsets: [4] -> x_indices: [4, target_W]
+        x_indices = mx.clip(x_floor[None, :] + offsets[:, None], 0, W - 1)
 
-        # Get 4 x indices (clamped to valid range)
-        x_indices = []
-        for offset in [-1, 0, 1, 2]:
-            idx = mx.clip(x_floor + offset, 0, W - 1)
-            x_indices.append(idx)
+        # Compute cubic weights and stack into tensors
+        wy = _cubic_interp_weights(ty)  # tuple of 4 arrays, each [target_H]
+        wx = _cubic_interp_weights(tx)  # tuple of 4 arrays, each [target_W]
+        wy_stacked = mx.stack(wy, axis=0)  # [4, target_H]
+        wx_stacked = mx.stack(wx, axis=0)  # [4, target_W]
 
-        # Compute cubic weights
-        wy = _cubic_interp_weights(ty)  # 4 weight arrays of shape [target_H]
-        wx = _cubic_interp_weights(tx)  # 4 weight arrays of shape [target_W]
+        # Compute outer product of weights: [4, 4, target_H, target_W]
+        # wy: [4, target_H, 1] * wx: [4, 1, target_W] via broadcasting
+        weight_grid = wy_stacked[:, None, :, None] * wx_stacked[None, :, None, :]
 
-        # Reshape weights for broadcasting
-        wy = [w.reshape(1, 1, target_H, 1) for w in wy]
-        wx = [w.reshape(1, 1, 1, target_W) for w in wx]
+        # Gather all 16 sample positions using advanced indexing
+        # x shape: [B, C, H, W]
+        # We need samples at all combinations of y_indices[i] and x_indices[j]
+        # Result shape: [B, C, 4, 4, target_H, target_W]
+        #
+        # For each (i, j) pair, we gather x[:, :, y_indices[i], x_indices[j]]
+        # Using reshape + take for efficient gathering:
+        #   - First gather along H with y_indices: [B, C, 4, target_H, W]
+        #   - Then gather along W with x_indices: [B, C, 4, target_H, 4, target_W]
+        #   - Transpose to [B, C, 4, 4, target_H, target_W]
 
-        # Sample and interpolate
-        result = mx.zeros((B, C, target_H, target_W))
-        for i, (yi, wyi) in enumerate(zip(y_indices, wy)):
-            for j, (xj, wxj) in enumerate(zip(x_indices, wx)):
-                vals = x[:, :, yi, :][:, :, :, xj]
-                result = result + vals * wyi * wxj
+        # Step 1: Gather along H dimension for all 4 y offsets
+        # x[:, :, y_indices, :] where y_indices is [4, target_H]
+        # Use take to gather: flatten y_indices and reshape result
+        y_flat = y_indices.flatten()  # [4 * target_H]
+        gathered_y = mx.take(x, y_flat, axis=2)  # [B, C, 4*target_H, W]
+        gathered_y = gathered_y.reshape(B, C, 4, target_H, W)  # [B, C, 4, target_H, W]
+
+        # Step 2: Gather along W dimension for all 4 x offsets
+        # For each of the 4 y-positions, gather 4 x-positions
+        x_flat = x_indices.flatten()  # [4 * target_W]
+        # gathered_y: [B, C, 4, target_H, W] -> take along axis=4
+        gathered_xy = mx.take(gathered_y, x_flat, axis=4)  # [B, C, 4, target_H, 4*target_W]
+        gathered_xy = gathered_xy.reshape(B, C, 4, target_H, 4, target_W)  # [B, C, 4, target_H, 4, target_W]
+
+        # Transpose to [B, C, 4, 4, target_H, target_W] for weight multiplication
+        samples = gathered_xy.transpose(0, 1, 2, 4, 3, 5)  # [B, C, 4, 4, target_H, target_W]
+
+        # Apply weights and sum over the 4x4 kernel dimensions
+        # weight_grid: [4, 4, target_H, target_W] broadcasts with samples
+        result = mx.sum(samples * weight_grid[None, None, :, :, :, :], axis=(2, 3))
 
     return result
 

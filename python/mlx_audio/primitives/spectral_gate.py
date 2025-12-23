@@ -12,6 +12,7 @@ from scipy.ndimage import minimum_filter1d, uniform_filter
 
 from ._validation import validate_positive, validate_range
 from .stft import istft, magnitude, phase, stft
+from mlx_audio.constants import DIVISION_EPSILON
 
 
 def spectral_gate(
@@ -187,7 +188,7 @@ def spectral_gate(
 
     # Compute soft mask
     # mask = 1 where signal > threshold, smoothly decreasing below
-    mask = (audio_mag - noise_thresh) / (audio_mag + 1e-10)
+    mask = (audio_mag - noise_thresh) / (audio_mag + DIVISION_EPSILON)
     mask = np.clip(mask, 0.0, 1.0)
 
     # Apply smoothing to mask
@@ -324,7 +325,7 @@ def spectral_gate_adaptive(
     noise_thresh = noise_floor * (1.0 + threshold_linear)
 
     # Compute mask
-    mask = (audio_mag - noise_thresh) / (audio_mag + 1e-10)
+    mask = (audio_mag - noise_thresh) / (audio_mag + DIVISION_EPSILON)
     mask = np.clip(mask, 0.0, 1.0)
 
     # Apply prop_decrease

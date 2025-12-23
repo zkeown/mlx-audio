@@ -134,6 +134,10 @@ class TestHTDemucsComponents:
         mean = mx.mean(mag, axis=(1, 2, 3), keepdims=True)
         std = mx.std(mag, axis=(1, 2, 3), keepdims=True) + 1e-5
         x = (mag - mean) / std
+
+        # Convert to NHWC format (encoders now use MLX-native format)
+        # [B, C, F, T] -> [B, F, T, C]
+        x = x.transpose(0, 2, 3, 1)
         mx.eval(x)
 
         # Expected channel progression: [48, 96, 192, 384]
@@ -142,9 +146,10 @@ class TestHTDemucsComponents:
         for i, enc in enumerate(mlx_model.encoder):
             x = enc(x)
             mx.eval(x)
-            assert x.shape[1] == expected_channels[i], (
+            # In NHWC format, channels are at axis 3
+            assert x.shape[3] == expected_channels[i], (
                 f"Encoder layer {i} channel mismatch: "
-                f"got {x.shape[1]}, expected {expected_channels[i]}"
+                f"got {x.shape[3]}, expected {expected_channels[i]}"
             )
 
 
@@ -375,7 +380,12 @@ class TestHTDemucsConfig:
 
 
 class TestHTDemucsLayers:
-    """Test individual layer implementations."""
+    """Test individual layer implementations.
+
+    NOTE: Layers now use MLX-native NHWC/NLC format internally.
+    - Frequency branch: [B, F, T, C] (NHWC)
+    - Time branch: [B, T, C] (NLC)
+    """
 
     def test_encoder_layer_freq(self):
         """Test frequency encoder layer."""
@@ -383,16 +393,17 @@ class TestHTDemucsLayers:
 
         layer = HEncLayer(4, 48, kernel_size=8, stride=4, freq=True)
 
-        # Test input: [B, C, F, T]
-        x = mx.random.normal((1, 4, 2048, 216))
+        # Test input: [B, F, T, C] (NHWC format)
+        x = mx.random.normal((1, 2048, 216, 4))
         mx.eval(x)
 
         out = layer(x)
         mx.eval(out)
 
-        # Output should have correct channels and reduced freq
-        assert out.shape[1] == 48, f"Wrong channels: {out.shape[1]}"
-        assert out.shape[2] == 512, f"Wrong freq bins: {out.shape[2]}"
+        # Output should have correct shape [B, F', T', C']
+        # F': 2048/4 = 512, C': 48
+        assert out.shape[3] == 48, f"Wrong channels: {out.shape[3]}"
+        assert out.shape[1] == 512, f"Wrong freq bins: {out.shape[1]}"
 
     def test_encoder_layer_time(self):
         """Test time encoder layer."""
@@ -400,15 +411,15 @@ class TestHTDemucsLayers:
 
         layer = HEncLayer(2, 48, kernel_size=8, stride=4, freq=False)
 
-        # Test input: [B, C, T]
-        x = mx.random.normal((1, 2, 220500))
+        # Test input: [B, T, C] (NLC format)
+        x = mx.random.normal((1, 220500, 2))
         mx.eval(x)
 
         out = layer(x)
         mx.eval(out)
 
-        # Output should have correct channels
-        assert out.shape[1] == 48, f"Wrong channels: {out.shape[1]}"
+        # Output should have correct shape [B, T', C']
+        assert out.shape[2] == 48, f"Wrong channels: {out.shape[2]}"
 
     def test_decoder_layer_freq(self):
         """Test frequency decoder layer."""
@@ -416,17 +427,18 @@ class TestHTDemucsLayers:
 
         layer = HDecLayer(384, 192, kernel_size=8, stride=4, freq=True)
 
-        # Test input: [B, C, F, T]
-        x = mx.random.normal((1, 384, 8, 216))
-        skip = mx.random.normal((1, 384, 8, 216))
+        # Test input: [B, F, T, C] (NHWC format)
+        x = mx.random.normal((1, 8, 216, 384))
+        skip = mx.random.normal((1, 8, 216, 384))
         mx.eval(x, skip)
 
         out, pre = layer(x, skip, length=216)
         mx.eval(out)
 
-        # Output should have correct channels and increased freq
-        assert out.shape[1] == 192, f"Wrong channels: {out.shape[1]}"
-        assert out.shape[2] == 32, f"Wrong freq bins: {out.shape[2]}"
+        # Output should have correct shape [B, F', T', C']
+        # F': 8*4 - 2*pad = 32, C': 192
+        assert out.shape[3] == 192, f"Wrong channels: {out.shape[3]}"
+        assert out.shape[1] == 32, f"Wrong freq bins: {out.shape[1]}"
 
     def test_decoder_layer_time(self):
         """Test time decoder layer."""
@@ -434,17 +446,17 @@ class TestHTDemucsLayers:
 
         layer = HDecLayer(384, 192, kernel_size=8, stride=4, freq=False)
 
-        # Test input: [B, C, T]
-        x = mx.random.normal((1, 384, 862))
-        skip = mx.random.normal((1, 384, 862))
+        # Test input: [B, T, C] (NLC format)
+        x = mx.random.normal((1, 862, 384))
+        skip = mx.random.normal((1, 862, 384))
         mx.eval(x, skip)
 
         out, pre = layer(x, skip, length=3446)
         mx.eval(out)
 
-        # Output should have correct channels
-        assert out.shape[1] == 192, f"Wrong channels: {out.shape[1]}"
-        assert out.shape[2] == 3446, f"Wrong time dim: {out.shape[2]}"
+        # Output should have correct shape [B, T', C']
+        assert out.shape[2] == 192, f"Wrong channels: {out.shape[2]}"
+        assert out.shape[1] == 3446, f"Wrong time dim: {out.shape[1]}"
 
 
 if __name__ == "__main__":

@@ -36,25 +36,45 @@ final class HTDemucsParityTests: XCTestCase {
             return URL(fileURLWithPath: envPath)
         }
 
-        // Try relative to source file
-        let sourcePath = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()  // HTDemucsParityTests.swift
-            .deletingLastPathComponent()  // MLXAudioModelsTests
-            .deletingLastPathComponent()  // Tests
-            .appendingPathComponent("Fixtures")
-            .appendingPathComponent("HTDemucs")
+        // Common fixture locations to check
+        let possiblePaths = [
+            // Relative to source file (when #filePath points to actual source)
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()  // HTDemucsParityTests.swift
+                .deletingLastPathComponent()  // MLXAudioModelsTests
+                .deletingLastPathComponent()  // Tests
+                .appendingPathComponent("Fixtures")
+                .appendingPathComponent("HTDemucs"),
 
-        if FileManager.default.fileExists(atPath: sourcePath.path) {
-            return sourcePath
+            // Current working directory patterns
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("Tests")
+                .appendingPathComponent("Fixtures")
+                .appendingPathComponent("HTDemucs"),
+
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("swift")
+                .appendingPathComponent("Tests")
+                .appendingPathComponent("Fixtures")
+                .appendingPathComponent("HTDemucs"),
+
+            // Common development paths
+            URL(fileURLWithPath: "/Users")
+                .appendingPathComponent(NSUserName())
+                .appendingPathComponent("Code/mlx-audio/swift/Tests/Fixtures/HTDemucs"),
+
+            URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Code/mlx-audio/swift/Tests/Fixtures/HTDemucs"),
+        ]
+
+        for path in possiblePaths {
+            if FileManager.default.fileExists(atPath: path.path) {
+                return path
+            }
         }
 
-        // Try relative to current working directory
-        let cwdPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Tests")
-            .appendingPathComponent("Fixtures")
-            .appendingPathComponent("HTDemucs")
-
-        return cwdPath
+        // Default fallback (will fail gracefully in tests)
+        return possiblePaths[0]
     }
 
     /// Check if fixtures are available
@@ -144,8 +164,12 @@ final class HTDemucsParityTests: XCTestCase {
         let fixtures = try loadFixture("freq_encoder")
         let weights = try loadFixture("freq_encoder_weights")
 
-        let input = fixtures["input"]!
-        let expectedOutput = fixtures["output"]!
+        // Fixtures are in NCHW format, convert to NHWC for encoder
+        let inputNCHW = fixtures["input"]!
+        let expectedOutputNCHW = fixtures["output"]!
+
+        // Convert NCHW -> NHWC: [B, C, F, T] -> [B, F, T, C]
+        let inputNHWC = inputNCHW.transposed(0, 2, 3, 1)
 
         let encoder = HEncLayer(
             chin: 4,
@@ -158,11 +182,14 @@ final class HTDemucsParityTests: XCTestCase {
         )
         try encoder.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
-        let output = encoder(input)
+        let outputNHWC = encoder(inputNHWC)
+
+        // Convert output back to NCHW for comparison: [B, F, T, C] -> [B, C, F, T]
+        let output = outputNHWC.transposed(0, 3, 1, 2)
 
         assertArraysEqual(
             output,
-            expectedOutput,
+            expectedOutputNCHW,
             tolerance: Self.layerTolerance,
             message: "Frequency encoder output mismatch"
         )
@@ -174,8 +201,12 @@ final class HTDemucsParityTests: XCTestCase {
         let fixtures = try loadFixture("time_encoder")
         let weights = try loadFixture("time_encoder_weights")
 
-        let input = fixtures["input"]!
-        let expectedOutput = fixtures["output"]!
+        // Fixtures are in NCL format, convert to NLC for encoder
+        let inputNCL = fixtures["input"]!
+        let expectedOutputNCL = fixtures["output"]!
+
+        // Convert NCL -> NLC: [B, C, T] -> [B, T, C]
+        let inputNLC = inputNCL.transposed(0, 2, 1)
 
         let encoder = HEncLayer(
             chin: 2,
@@ -188,11 +219,14 @@ final class HTDemucsParityTests: XCTestCase {
         )
         try encoder.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
-        let output = encoder(input)
+        let outputNLC = encoder(inputNLC)
+
+        // Convert output back to NCL for comparison: [B, T, C] -> [B, C, T]
+        let output = outputNLC.transposed(0, 2, 1)
 
         assertArraysEqual(
             output,
-            expectedOutput,
+            expectedOutputNCL,
             tolerance: Self.layerTolerance,
             message: "Time encoder output mismatch"
         )
@@ -206,9 +240,14 @@ final class HTDemucsParityTests: XCTestCase {
         let fixtures = try loadFixture("freq_decoder")
         let weights = try loadFixture("freq_decoder_weights")
 
-        let input = fixtures["input"]!
-        let skip = fixtures["skip"]!
-        let expectedOutput = fixtures["output"]!
+        // Fixtures are in NCHW format, convert to NHWC for decoder
+        let inputNCHW = fixtures["input"]!
+        let skipNCHW = fixtures["skip"]!
+        let expectedOutputNCHW = fixtures["output"]!
+
+        // Convert NCHW -> NHWC: [B, C, F, T] -> [B, F, T, C]
+        let inputNHWC = inputNCHW.transposed(0, 2, 3, 1)
+        let skipNHWC = skipNCHW.transposed(0, 2, 3, 1)
 
         let decoder = HDecLayer(
             chin: 48,
@@ -222,11 +261,14 @@ final class HTDemucsParityTests: XCTestCase {
         )
         try decoder.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
-        let (output, _) = decoder(input, skip: skip, length: 65)
+        let (outputNHWC, _) = decoder(inputNHWC, skip: skipNHWC, length: 65)
+
+        // Convert output back to NCHW for comparison: [B, F, T, C] -> [B, C, F, T]
+        let output = outputNHWC.transposed(0, 3, 1, 2)
 
         assertArraysEqual(
             output,
-            expectedOutput,
+            expectedOutputNCHW,
             tolerance: Self.layerTolerance,
             message: "Frequency decoder output mismatch"
         )
@@ -238,10 +280,15 @@ final class HTDemucsParityTests: XCTestCase {
         let fixtures = try loadFixture("time_decoder")
         let weights = try loadFixture("time_decoder_weights")
 
-        let input = fixtures["input"]!
-        let skip = fixtures["skip"]!
+        // Fixtures are in NCL format, convert to NLC for decoder
+        let inputNCL = fixtures["input"]!
+        let skipNCL = fixtures["skip"]!
         let length = fixtures["length"]!.item(Int.self)
-        let expectedOutput = fixtures["output"]!
+        let expectedOutputNCL = fixtures["output"]!
+
+        // Convert NCL -> NLC: [B, C, T] -> [B, T, C]
+        let inputNLC = inputNCL.transposed(0, 2, 1)
+        let skipNLC = skipNCL.transposed(0, 2, 1)
 
         let decoder = HDecLayer(
             chin: 48,
@@ -255,11 +302,14 @@ final class HTDemucsParityTests: XCTestCase {
         )
         try decoder.update(parameters: ModuleParameters.unflattened(weights), verify: .noUnusedKeys)
 
-        let (output, _) = decoder(input, skip: skip, length: length)
+        let (outputNLC, _) = decoder(inputNLC, skip: skipNLC, length: length)
+
+        // Convert output back to NCL for comparison: [B, T, C] -> [B, C, T]
+        let output = outputNLC.transposed(0, 2, 1)
 
         assertArraysEqual(
             output,
-            expectedOutput,
+            expectedOutputNCL,
             tolerance: Self.layerTolerance,
             message: "Time decoder output mismatch"
         )

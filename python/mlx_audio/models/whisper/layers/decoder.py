@@ -11,6 +11,7 @@ from mlx_audio.models.whisper.layers.attention import ResidualAttentionBlock
 
 if TYPE_CHECKING:
     from mlx_audio.models.whisper.config import WhisperConfig
+    from mlx_audio.models.whisper.kv_cache import KVCache
 
 
 class TextDecoder(nn.Module):
@@ -67,29 +68,24 @@ class TextDecoder(nn.Module):
         self,
         tokens: mx.array,
         audio_features: mx.array,
-        kv_cache: list[tuple[mx.array, mx.array]] | None = None,
-    ) -> tuple[mx.array, list[tuple[mx.array, mx.array]]]:
+        kv_cache: "KVCache | None" = None,
+    ) -> mx.array:
         """Generate logits for next token prediction.
 
         Args:
             tokens: Input token IDs [B, T]
             audio_features: Encoder output [B, S, D]
-            kv_cache: List of (key, value) tuples for each layer,
-                from previous decoding steps. Length = n_layers.
+            kv_cache: Pre-allocated KV cache for efficient incremental
+                decoding. Updated in-place.
 
         Returns:
-            Tuple of:
-                - Logits [B, T, n_vocab]
-                - Updated KV cache for all layers
+            Logits [B, T, n_vocab]
         """
         B, T = tokens.shape
 
         # Token + positional embeddings
         # For incremental decoding, offset is based on cache length
-        if kv_cache is not None and len(kv_cache) > 0 and kv_cache[0] is not None:
-            offset = kv_cache[0][0].shape[1]  # Length of cached keys
-        else:
-            offset = 0
+        offset = kv_cache.offset if kv_cache is not None else 0
 
         x = self.token_embedding(tokens)
         x = x + self.positional_embedding[offset : offset + T, :]
@@ -99,16 +95,18 @@ class TextDecoder(nn.Module):
         mask = self._create_causal_mask(T, offset)
 
         # Apply transformer blocks
-        new_kv_cache = []
         for i, block in enumerate(self.blocks):
-            layer_cache = kv_cache[i] if kv_cache is not None and i < len(kv_cache) else None
-            x, new_cache = block(
+            x = block(
                 x,
                 xa=audio_features,
                 mask=mask,
-                kv_cache=layer_cache,
+                kv_cache=kv_cache,
+                layer_idx=i,
             )
-            new_kv_cache.append(new_cache)
+
+        # Advance cache position after all layers processed
+        if kv_cache is not None:
+            kv_cache.step(T)
 
         # Final layer norm
         x = self.ln(x)
@@ -117,7 +115,7 @@ class TextDecoder(nn.Module):
         # x: [B, T, n_state], token_embedding.weight: [n_vocab, n_state]
         logits = x @ self.token_embedding.weight.T
 
-        return logits, new_kv_cache
+        return logits
 
     def _create_causal_mask(self, T: int, offset: int = 0) -> mx.array:
         """Create causal attention mask.

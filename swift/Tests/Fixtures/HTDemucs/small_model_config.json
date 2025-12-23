@@ -1,0 +1,27 @@
+{
+  "sources": [
+    "drums",
+    "bass",
+    "other",
+    "vocals"
+  ],
+  "audio_channels": 2,
+  "samplerate": 44100,
+  "segment": 1.0,
+  "channels": 16,
+  "growth": 2.0,
+  "depth": 2,
+  "kernel_size": 8,
+  "stride": 4,
+  "nfft": 4096,
+  "hop_length": 1024,
+  "freq_emb": 0.2,
+  "t_depth": 1,
+  "t_heads": 8,
+  "t_dropout": 0.0,
+  "t_hidden_scale": 4.0,
+  "bottom_channels": 32,
+  "dconv_depth": 1,
+  "dconv_comp": 8,
+  "cac": true
+}

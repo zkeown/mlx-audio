@@ -116,9 +116,9 @@ class AudioEncoder(nn.Module):
         T = x.shape[1]
         x = x + self.positional_embedding[:T, :]
 
-        # Apply transformer blocks
+        # Apply transformer blocks (encoder blocks don't use KV cache)
         for block in self.blocks:
-            x, _ = block(x)
+            x = block(x)
 
         # Final layer norm
         x = self.ln_post(x)
