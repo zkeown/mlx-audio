@@ -1,0 +1,168 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "cmake>=3.25",
+    "nanobind>=2.0.0,<3.0.0",
+    "mlx>=0.30.0,<1.0.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlx-audio"
+version = "0.1.0"
+description = "Complete audio ML toolkit for Apple Silicon: DSP primitives, data loading, training, and models"
+readme = "../README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Zak Keown" }
+]
+keywords = [
+    "mlx",
+    "audio",
+    "dsp",
+    "machine-learning",
+    "apple-silicon",
+    "stft",
+    "mel",
+    "spectrogram",
+    "dataloader",
+    "training",
+    "source-separation",
+    "demucs",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "mlx>=0.30.0,<1.0.0",
+    "numpy>=1.24.0",
+    "huggingface-hub>=0.20.0",
+]
+
+[project.optional-dependencies]
+# Subpackage-specific extras
+train = [
+    "wandb>=0.16.0",
+]
+data = [
+    "pyarrow>=14.0",
+]
+
+# Feature extras
+audio = [
+    "librosa>=0.10",
+    "soundfile>=0.12",
+]
+image = [
+    "pillow>=10.0",
+]
+cloud = [
+    "boto3>=1.34",
+    "google-cloud-storage>=2.14",
+    "aiohttp>=3.9",
+]
+
+# Combined extras
+full = [
+    "mlx-audio[train,data,audio,image,cloud]",
+]
+
+# Development
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pytest-xdist>=3.5",
+    "pytest-timeout>=2.2",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6.100",
+    "ruff>=0.1.0",
+    "mypy>=1.8",
+    "pre-commit>=3.0",
+]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "scipy>=1.10.0",
+    "torch>=2.0",
+    "torchaudio>=2.0",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+]
+
+[project.scripts]
+mlx-audio = "mlx_audio.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/zkeown/mlx-audio"
+Documentation = "https://mlx-audio.readthedocs.io"
+Repository = "https://github.com/zkeown/mlx-audio"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mlx_audio*"]
+
+[tool.setuptools.package-data]
+"mlx_audio.primitives" = ["*.so", "*.dylib", "*.metallib"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "parity: marks parity tests against reference implementations",
+    "property: marks property-based tests using Hypothesis",
+    "benchmark: marks benchmark tests",
+    "integration: marks integration tests",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+addopts = "-v --tb=short --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501", "N812", "UP028"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mlx_audio"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F401", "F841"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["mlx_audio"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

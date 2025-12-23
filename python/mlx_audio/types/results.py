@@ -1,0 +1,463 @@
+"""Result types for mlx-audio tasks."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import mlx.core as mx
+
+from mlx_audio.types.audio import AudioData
+
+
+@dataclass
+class SeparationResult:
+    """Result from audio source separation.
+
+    Provides attribute access to stems and batch operations.
+
+    Attributes:
+        stems: Dictionary mapping stem names to AudioData
+        sample_rate: Sample rate of all stems
+        model_name: Name of the model used
+        metadata: Additional metadata from separation
+    """
+
+    stems: dict[str, AudioData]
+    sample_rate: int
+    model_name: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    def __getattr__(self, name: str) -> AudioData:
+        """Access stems as attributes (e.g., result.vocals)."""
+        if name.startswith("_") or name in ("stems", "sample_rate", "model_name", "metadata"):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        if name in self.stems:
+            return self.stems[name]
+        raise AttributeError(
+            f"No stem named '{name}'. Available: {list(self.stems.keys())}"
+        )
+
+    def save(
+        self,
+        directory: str | Path,
+        *,
+        format: str = "wav",
+        stem_names: list[str] | None = None,
+    ) -> dict[str, Path]:
+        """Save all stems to directory.
+
+        Args:
+            directory: Output directory
+            format: Audio format (wav, flac, mp3)
+            stem_names: Specific stems to save (None = all)
+
+        Returns:
+            Dict mapping stem names to saved file paths
+        """
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+
+        saved = {}
+        for name, audio in self.stems.items():
+            if stem_names is None or name in stem_names:
+                path = directory / f"{name}.{format}"
+                audio.save(path)
+                saved[name] = path
+
+        return saved
+
+    @property
+    def available_stems(self) -> list[str]:
+        """List of available stem names."""
+        return list(self.stems.keys())
+
+    def __repr__(self) -> str:
+        stems_str = ", ".join(self.available_stems)
+        return f"SeparationResult(stems=[{stems_str}], sample_rate={self.sample_rate})"
+
+
+@dataclass
+class TranscriptionSegment:
+    """A segment of transcribed text with timing."""
+
+    text: str
+    start: float  # Start time in seconds
+    end: float  # End time in seconds
+    confidence: float = 0.0
+
+
+@dataclass
+class TranscriptionResult:
+    """Result from speech transcription.
+
+    Attributes:
+        text: Full transcription text
+        segments: List of timed segments
+        language: Detected language code
+        language_probability: Confidence in language detection
+        model_name: Name of the model used
+    """
+
+    text: str
+    segments: list[TranscriptionSegment] = field(default_factory=list)
+    language: str | None = None
+    language_probability: float = 0.0
+    model_name: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    def to_srt(self) -> str:
+        """Export as SRT subtitle format."""
+        lines = []
+        for i, seg in enumerate(self.segments, 1):
+            start = self._format_timestamp(seg.start)
+            end = self._format_timestamp(seg.end)
+            lines.append(f"{i}")
+            lines.append(f"{start} --> {end}")
+            lines.append(seg.text.strip())
+            lines.append("")
+        return "\n".join(lines)
+
+    def to_vtt(self) -> str:
+        """Export as WebVTT subtitle format."""
+        lines = ["WEBVTT", ""]
+        for seg in self.segments:
+            start = self._format_timestamp(seg.start, vtt=True)
+            end = self._format_timestamp(seg.end, vtt=True)
+            lines.append(f"{start} --> {end}")
+            lines.append(seg.text.strip())
+            lines.append("")
+        return "\n".join(lines)
+
+    def save(self, path: str | Path, format: str = "txt") -> Path:
+        """Save transcription to file.
+
+        Args:
+            path: Output file path
+            format: Output format (txt, srt, vtt, json)
+
+        Returns:
+            Path to saved file
+        """
+        import json
+
+        path = Path(path)
+        if format == "txt":
+            path.write_text(self.text)
+        elif format == "srt":
+            path.write_text(self.to_srt())
+        elif format == "vtt":
+            path.write_text(self.to_vtt())
+        elif format == "json":
+            data = {
+                "text": self.text,
+                "language": self.language,
+                "segments": [
+                    {"text": s.text, "start": s.start, "end": s.end}
+                    for s in self.segments
+                ],
+            }
+            path.write_text(json.dumps(data, indent=2))
+        return path
+
+    def _format_timestamp(self, seconds: float, vtt: bool = False) -> str:
+        """Format timestamp for subtitle files."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = seconds % 60
+        sep = "." if vtt else ","
+        return f"{hours:02d}:{minutes:02d}:{secs:06.3f}".replace(".", sep)
+
+
+@dataclass
+class GenerationResult(AudioData):
+    """Result from audio generation.
+
+    Extends AudioData with generation-specific metadata.
+
+    Attributes:
+        array: Generated audio data
+        sample_rate: Sample rate
+        prompt: Text prompt used for generation
+        model_name: Name of the model used
+        generation_params: Parameters used for generation
+    """
+
+    prompt: str = ""
+    model_name: str = ""
+    generation_params: dict = field(default_factory=dict)
+
+    def play(self) -> None:
+        """Play the generated audio (requires sounddevice)."""
+        try:
+            import sounddevice as sd
+        except ImportError:
+            raise ImportError(
+                "sounddevice is required for playback. "
+                "Install with: pip install sounddevice"
+            )
+        sd.play(self.to_numpy().T, self.sample_rate)
+        sd.wait()
+
+
+@dataclass
+class EmbeddingResult:
+    """Result from audio embedding.
+
+    Supports both single and batch embeddings.
+
+    Attributes:
+        vectors: Embedding vectors [embedding_dim] or [batch, embedding_dim]
+        model_name: Name of the model used
+        metadata: Additional metadata
+    """
+
+    vectors: "mx.array"
+    model_name: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    @property
+    def vector(self) -> "mx.array":
+        """Get single embedding vector (first if batched)."""
+        if len(self.vectors.shape) == 1:
+            return self.vectors
+        return self.vectors[0]
+
+    @property
+    def dimension(self) -> int:
+        """Embedding dimension."""
+        return self.vectors.shape[-1]
+
+    def to_numpy(self):
+        """Convert to NumPy array."""
+        import numpy as np
+
+        return np.array(self.vectors)
+
+    def cosine_similarity(self, other: "EmbeddingResult") -> float:
+        """Compute cosine similarity with another embedding."""
+        import mlx.core as mx
+
+        a = self.vector / mx.linalg.norm(self.vector)
+        b = other.vector / mx.linalg.norm(other.vector)
+        return float(mx.sum(a * b))
+
+
+@dataclass
+class SpeakerSegment:
+    """A segment of speech with speaker assignment."""
+
+    speaker: str  # Speaker ID (e.g., "SPEAKER_00")
+    start: float  # Start time in seconds
+    end: float  # End time in seconds
+    confidence: float = 0.0
+    text: str | None = None  # Optional transcription text
+
+    @property
+    def duration(self) -> float:
+        """Duration in seconds."""
+        return self.end - self.start
+
+
+@dataclass
+class DiarizationResult:
+    """Result from speaker diarization.
+
+    Attributes:
+        segments: List of speaker segments with timing
+        num_speakers: Number of speakers detected
+        speaker_embeddings: Optional speaker embeddings for each speaker
+        model_name: Name of the model used
+        metadata: Additional metadata
+    """
+
+    segments: list[SpeakerSegment]
+    num_speakers: int
+    speaker_embeddings: dict[str, "mx.array"] | None = None
+    model_name: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    def to_rttm(self, filename: str = "audio") -> str:
+        """Export as RTTM format (standard diarization format).
+
+        Parameters
+        ----------
+        filename : str
+            Filename to use in RTTM output.
+
+        Returns
+        -------
+        str
+            RTTM formatted string.
+        """
+        lines = []
+        for seg in self.segments:
+            # RTTM format: SPEAKER file 1 start duration <NA> <NA> spk <NA> <NA>
+            duration = seg.end - seg.start
+            line = (
+                f"SPEAKER {filename} 1 {seg.start:.3f} {duration:.3f} "
+                f"<NA> <NA> {seg.speaker} <NA> <NA>"
+            )
+            lines.append(line)
+        return "\n".join(lines)
+
+    def get_speaker_segments(self, speaker: str) -> list[SpeakerSegment]:
+        """Get all segments for a specific speaker.
+
+        Parameters
+        ----------
+        speaker : str
+            Speaker ID (e.g., "SPEAKER_00").
+
+        Returns
+        -------
+        list
+            Segments for the specified speaker.
+        """
+        return [seg for seg in self.segments if seg.speaker == speaker]
+
+    def get_speaker_duration(self, speaker: str) -> float:
+        """Get total speaking duration for a speaker.
+
+        Parameters
+        ----------
+        speaker : str
+            Speaker ID.
+
+        Returns
+        -------
+        float
+            Total duration in seconds.
+        """
+        return sum(seg.duration for seg in self.get_speaker_segments(speaker))
+
+    @property
+    def speakers(self) -> list[str]:
+        """List of unique speaker IDs."""
+        return sorted(set(seg.speaker for seg in self.segments))
+
+    @property
+    def total_duration(self) -> float:
+        """Total duration of all segments."""
+        if not self.segments:
+            return 0.0
+        return max(seg.end for seg in self.segments)
+
+    def save(self, path: str | Path, format: str = "rttm") -> Path:
+        """Save diarization result to file.
+
+        Parameters
+        ----------
+        path : str or Path
+            Output file path.
+        format : str, default="rttm"
+            Output format: "rttm" or "json".
+
+        Returns
+        -------
+        Path
+            Path to saved file.
+        """
+        import json
+
+        path = Path(path)
+
+        if format == "rttm":
+            path.write_text(self.to_rttm(path.stem))
+        elif format == "json":
+            data = {
+                "num_speakers": self.num_speakers,
+                "segments": [
+                    {
+                        "speaker": s.speaker,
+                        "start": s.start,
+                        "end": s.end,
+                        "text": s.text,
+                    }
+                    for s in self.segments
+                ],
+            }
+            path.write_text(json.dumps(data, indent=2))
+        else:
+            raise ValueError(f"Unknown format: {format}")
+
+        return path
+
+
+@dataclass
+class SpeechResult(AudioData):
+    """Result from text-to-speech synthesis.
+
+    Extends AudioData with TTS-specific metadata.
+
+    Attributes:
+        array: Generated audio data
+        sample_rate: Sample rate
+        text: Original text input
+        description: Voice description used (if any)
+        model_name: Name of the model used
+        generation_params: Parameters used for generation
+    """
+
+    text: str = ""
+    description: str | None = None
+    model_name: str = ""
+    generation_params: dict = field(default_factory=dict)
+
+    def play(self) -> None:
+        """Play the generated speech (requires sounddevice)."""
+        try:
+            import sounddevice as sd
+        except ImportError:
+            raise ImportError(
+                "sounddevice is required for playback. "
+                "Install with: pip install sounddevice"
+            )
+        sd.play(self.to_numpy().T, self.sample_rate)
+        sd.wait()
+
+    @property
+    def duration(self) -> float:
+        """Duration of the generated speech in seconds."""
+        return self.array.shape[-1] / self.sample_rate
+
+
+@dataclass
+class EnhancementResult(AudioData):
+    """Result from audio enhancement.
+
+    Attributes:
+        array: Enhanced audio data
+        sample_rate: Sample rate
+        model_name: Name of the model used
+        snr_improvement: Estimated SNR improvement in dB (if available)
+        metadata: Additional enhancement metadata
+    """
+
+    model_name: str = ""
+    snr_improvement: float | None = None
+    metadata: dict = field(default_factory=dict)
+
+    @property
+    def before_after(self) -> tuple["mx.array", "mx.array"]:
+        """Get original and enhanced arrays for comparison.
+
+        Returns
+        -------
+        tuple
+            (original, enhanced) arrays.
+
+        Raises
+        ------
+        ValueError
+            If original audio was not stored (keep_original=False).
+        """
+        original = self.metadata.get("original")
+        if original is not None:
+            return (original, self.array)
+        raise ValueError(
+            "Original audio not stored. "
+            "Use keep_original=True when calling enhance()."
+        )
