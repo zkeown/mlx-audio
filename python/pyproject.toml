@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlx-audio"
-version = "0.1.0"
+version = "1.0.0"
 description = "Complete audio ML toolkit for Apple Silicon: DSP primitives, data loading, training, and models"
 readme = "README.md"
 license = { text = "MIT" }
@@ -32,7 +32,7 @@ keywords = [
     "demucs",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",

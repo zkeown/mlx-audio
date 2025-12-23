@@ -146,4 +146,71 @@ public class TextDecoder: Module {
         // Convert to additive mask (0 for attend, -inf for masked)
         return which(mask, MLXArray(0.0), MLXArray(-.infinity))
     }
+
+    /// Optimized forward pass using pre-allocated KV cache.
+    ///
+    /// This version avoids O(n) concatenation by using the `at[].add()` pattern
+    /// for cache updates. It also caches cross-attention K/V which are fixed
+    /// for the entire decode sequence.
+    ///
+    /// - Parameters:
+    ///   - tokens: Input token IDs [B, T]
+    ///   - audioFeatures: Encoder output [B, S, D]
+    ///   - kvCache: Pre-allocated KV cache (WhisperKVCache or compatible)
+    ///   - crossAttnCache: Cached cross-attention K/V per layer (computed on first step)
+    ///   - offset: Position offset for positional embeddings
+    /// - Returns: Tuple of (logits, newKs, newVs, crossKs, crossVs) for cache updates
+    public func forwardOptimized(
+        tokens: MLXArray,
+        audioFeatures: MLXArray,
+        selfAttnKVs: [(MLXArray, MLXArray)]?,
+        crossAttnKVs: [(MLXArray, MLXArray)]?,
+        offset: Int
+    ) -> (logits: MLXArray, newKs: [MLXArray], newVs: [MLXArray], crossKs: [MLXArray], crossVs: [MLXArray]) {
+        let T = tokens.dim(1)
+
+        // Token + positional embeddings
+        var x = tokenEmbedding(tokens)
+        x = x + positionalEmbedding[offset ..< (offset + T)]
+
+        // Create causal mask
+        let totalLen = offset + T
+        let mask = createCausalMask(T: T, offset: offset)
+
+        // Process blocks with optimized caching
+        var newKs: [MLXArray] = []
+        var newVs: [MLXArray] = []
+        var crossKs: [MLXArray] = []
+        var crossVs: [MLXArray] = []
+
+        for (i, block) in blocks.enumerated() {
+            let selfKV = selfAttnKVs.flatMap { i < $0.count ? $0[i] : nil }
+            let crossKV = crossAttnKVs.flatMap { i < $0.count ? $0[i] : nil }
+
+            let (output, newK, newV, crossK, crossV) = block.forwardOptimized(
+                x,
+                xa: audioFeatures,
+                mask: mask,
+                precomputedKV: selfKV,
+                crossAttnKV: crossKV
+            )
+            x = output
+
+            newKs.append(newK)
+            newVs.append(newV)
+
+            if let ck = crossK {
+                crossKs.append(ck)
+            }
+            if let cv = crossV {
+                crossVs.append(cv)
+            }
+        }
+
+        // Final layer norm and projection
+        x = ln(x)
+        let logits = x.matmul(tokenEmbedding.weight.T)
+
+        return (logits, newKs, newVs, crossKs, crossVs)
+    }
 }

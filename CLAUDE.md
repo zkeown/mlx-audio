@@ -10,6 +10,22 @@ mlx-audio is an audio machine learning toolkit for Apple Silicon using the MLX f
 
 ## Build & Development Commands
 
+### Swift
+
+```bash
+# Build Swift package
+cd swift
+swift build
+
+# Run Swift tests (IMPORTANT: use the test script, not swift test directly)
+./swift/test.sh
+
+# Run specific Swift test
+./swift/test.sh --filter BanquetParityTests
+```
+
+### Python
+
 ```bash
 # Install in development mode (from python/ directory)
 cd python

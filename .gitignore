@@ -179,3 +179,6 @@ DerivedData/
 *.playground/
 Packages/
 Package.resolved
+
+# Parity test fixtures (generated on-demand, not committed)
+swift/Tests/Fixtures/

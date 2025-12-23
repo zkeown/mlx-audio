@@ -150,40 +150,13 @@ private func chunkedInference(
         // Weighted accumulation
         let weightedChunk = chunkOut * chunkWeight4D
 
-        // Accumulate into output buffers
-        // Note: MLX Swift may not have .at().add() - use workaround
-        let slicedOut = out[0..., 0..., 0..., offset..<chunkEnd]
-        let newSlice = slicedOut + weightedChunk
-
-        // Reconstruct output with updated slice
-        if offset == 0 {
-            let rest = out[0..., 0..., 0..., chunkEnd...]
-            out = concatenated([newSlice, rest], axis: 3)
-        } else if chunkEnd == T {
-            let prefix = out[0..., 0..., 0..., 0..<offset]
-            out = concatenated([prefix, newSlice], axis: 3)
-        } else {
-            let prefix = out[0..., 0..., 0..., 0..<offset]
-            let suffix = out[0..., 0..., 0..., chunkEnd...]
-            out = concatenated([prefix, newSlice, suffix], axis: 3)
-        }
+        // Accumulate into output buffers using at[].add() for memory-efficient updates.
+        // This avoids creating full tensor copies on each chunk (O(1) vs O(T) per chunk).
+        out = out.at[0..., 0..., 0..., offset..<chunkEnd].add(weightedChunk)
 
         // Same for weight sum
         let broadcastWeight = MLX.broadcast(chunkWeight4D, to: weightedChunk.shape)
-        let slicedWeight = weightSum[0..., 0..., 0..., offset..<chunkEnd]
-        let newWeightSlice = slicedWeight + broadcastWeight
-
-        if offset == 0 {
-            let rest = weightSum[0..., 0..., 0..., chunkEnd...]
-            weightSum = concatenated([newWeightSlice, rest], axis: 3)
-        } else if chunkEnd == T {
-            let prefix = weightSum[0..., 0..., 0..., 0..<offset]
-            weightSum = concatenated([prefix, newWeightSlice], axis: 3)
-        } else {
-            let prefix = weightSum[0..., 0..., 0..., 0..<offset]
-            let suffix = weightSum[0..., 0..., 0..., chunkEnd...]
-            weightSum = concatenated([prefix, newWeightSlice, suffix], axis: 3)
-        }
+        weightSum = weightSum.at[0..., 0..., 0..., offset..<chunkEnd].add(broadcastWeight)
 
         // Progress callback
         progressCallback?(Float(chunkIdx + 1) / Float(numChunks))

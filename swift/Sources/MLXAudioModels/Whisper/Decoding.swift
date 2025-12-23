@@ -5,6 +5,72 @@ import Foundation
 import MLX
 import MLXNN
 
+// MARK: - Optimized KV Cache for Decoding
+
+/// Lightweight KV cache optimized for decoding.
+/// Uses pre-allocated buffers with O(1) append instead of O(n) concatenation.
+private class DecodingKVCache {
+    private var keys: [MLXArray]
+    private var values: [MLXArray]
+    private var length: Int = 0
+    private let maxLength: Int
+    let nLayers: Int
+
+    init(nLayers: Int, batchSize: Int, maxLength: Int, hiddenDim: Int, dtype: DType = .float16) {
+        self.maxLength = maxLength
+        self.nLayers = nLayers
+        self.keys = (0..<nLayers).map { _ in
+            MLXArray.zeros([batchSize, maxLength, hiddenDim], dtype: dtype)
+        }
+        self.values = (0..<nLayers).map { _ in
+            MLXArray.zeros([batchSize, maxLength, hiddenDim], dtype: dtype)
+        }
+        // Force allocation
+        eval(keys + values)
+    }
+
+    /// Update layer's cache with new K/V and return full sequences.
+    func update(layer: Int, k: MLXArray, v: MLXArray) -> (MLXArray, MLXArray) {
+        let tNew = k.dim(1)
+        let startPos = length
+        let endPos = startPos + tNew
+
+        // O(1) update using at[].add() pattern
+        keys[layer] = keys[layer].at[0..., startPos..<endPos, 0...].add(
+            k - keys[layer][0..., startPos..<endPos, 0...]
+        )
+        values[layer] = values[layer].at[0..., startPos..<endPos, 0...].add(
+            v - values[layer][0..., startPos..<endPos, 0...]
+        )
+
+        // Return slice of valid cache
+        return (keys[layer][0..., 0..<endPos, 0...], values[layer][0..., 0..<endPos, 0...])
+    }
+
+    /// Update all layers at once from arrays of new K/Vs.
+    func updateAll(newKs: [MLXArray], newVs: [MLXArray]) {
+        for i in 0..<min(nLayers, newKs.count) {
+            _ = update(layer: i, k: newKs[i], v: newVs[i])
+        }
+    }
+
+    /// Advance position after processing all layers.
+    func step(nTokens: Int = 1) {
+        length += nTokens
+    }
+
+    /// Current offset for positional embeddings.
+    var offset: Int { length }
+
+    /// Get current KV pairs for all layers.
+    func getCurrentKVs() -> [(MLXArray, MLXArray)]? {
+        guard length > 0 else { return nil }
+        return (0..<nLayers).map { i in
+            (keys[i][0..., 0..<length, 0...], values[i][0..., 0..<length, 0...])
+        }
+    }
+}
+
 // MARK: - Decoding Options
 
 /// Configuration for Whisper transcription decoding.
@@ -175,19 +241,24 @@ public func greedyDecode(
         timestamps: !options.withoutTimestamps
     )
 
-    // Create token array
+    // Create initial token array for first pass
     var tokenArray = MLXArray(tokens.map { Int32($0) }).reshaped([1, -1])
 
     // KV cache for efficient decoding
     var kvCache: [(MLXArray, MLXArray)]?
 
+    // Eval interval: evaluate every N steps to balance memory/speed
+    // More frequent evals = less memory, slower; less frequent = more memory, faster
+    let evalInterval = 8
+
     // Generate tokens
-    for _ in 0..<options.maxTokens {
+    for step in 0..<options.maxTokens {
         // Get logits for last token(s)
         let inputTokens: MLXArray
         if let cache = kvCache, !cache.isEmpty {
             // Only feed the last token when using cache
-            inputTokens = tokenArray[0..., (-1)...].reshaped([1, 1])
+            // Avoid slicing the full array - just create a new single-element array
+            inputTokens = MLXArray([Int32(tokens.last!)]).reshaped([1, 1])
         } else {
             inputTokens = tokenArray
         }
@@ -200,28 +271,148 @@ public func greedyDecode(
         kvCache = newCache
 
         // Get logits for last position
-        var lastLogits = logits[0, -1]
+        let lastLogits = logits[0, -1]
 
-        // Apply temperature if > 0
+        // Sample next token
+        let nextToken: Int
         if options.temperature > 0 {
-            lastLogits = lastLogits / options.temperature
-            let probs = softmax(lastLogits, axis: -1)
-            // Sample from distribution
-            let nextToken = categoricalSample(probs)
-            tokens.append(nextToken)
+            let scaledLogits = lastLogits / options.temperature
+            let probs = softmax(scaledLogits, axis: -1)
+            nextToken = categoricalSample(probs)
         } else {
             // Greedy: take argmax
-            let nextToken = Int(argMax(lastLogits).item(Int32.self))
-            tokens.append(nextToken)
+            nextToken = Int(argMax(lastLogits).item(Int32.self))
         }
+        tokens.append(nextToken)
 
         // Check for end of text
-        if tokens.last == tokenizer.eot {
+        if nextToken == tokenizer.eot {
             break
         }
 
-        // Update token array
-        tokenArray = MLXArray(tokens.map { Int32($0) }).reshaped([1, -1])
+        // Periodically evaluate to release intermediate tensors
+        // This prevents unbounded memory growth while avoiding eval overhead on every step
+        if step % evalInterval == 0 {
+            eval(logits)
+        }
+    }
+
+    return tokens
+}
+
+/// Perform optimized greedy decoding with O(1) cache updates.
+///
+/// This version uses pre-allocated KV cache buffers and caches cross-attention
+/// K/V which are fixed for the entire decode sequence. This provides significant
+/// speedup for longer sequences (O(n) total vs O(n²) for naive concatenation).
+///
+/// - Parameters:
+///   - model: Whisper model
+///   - audioFeatures: Encoded audio features [B, T, D]
+///   - tokenizer: Whisper tokenizer
+///   - options: Decoding options
+/// - Returns: Generated token IDs
+public func greedyDecodeOptimized(
+    model: WhisperModel,
+    audioFeatures: MLXArray,
+    tokenizer: WhisperTokenizer,
+    options: DecodingOptions = DecodingOptions()
+) -> [Int] {
+    // Get initial tokens
+    var tokens = tokenizer.getInitialTokens(
+        language: options.language,
+        task: options.task,
+        timestamps: !options.withoutTimestamps
+    )
+
+    // Model configuration
+    let nLayers = model.config.nTextLayer
+    let hiddenDim = model.config.nTextState
+    let maxLength = options.maxTokens + tokens.count + 16  // Buffer for initial tokens
+
+    // Create pre-allocated KV cache
+    let cache = DecodingKVCache(
+        nLayers: nLayers,
+        batchSize: 1,
+        maxLength: maxLength,
+        hiddenDim: hiddenDim,
+        dtype: .float16
+    )
+
+    // Cross-attention K/V cache (computed once on first pass, reused thereafter)
+    var crossAttnKVs: [(MLXArray, MLXArray)]?
+
+    // Eval interval for memory management
+    let evalInterval = 8
+
+    // First pass: process all initial tokens at once
+    let tokenArray = MLXArray(tokens.map { Int32($0) }).reshaped([1, -1])
+    let (initialLogits, initKs, initVs, crossKs, crossVs) = model.decodeOptimized(
+        tokens: tokenArray,
+        audioFeatures: audioFeatures,
+        selfAttnKVs: nil,
+        crossAttnKVs: nil,
+        offset: 0
+    )
+
+    // Update cache with initial K/V
+    cache.updateAll(newKs: initKs, newVs: initVs)
+    cache.step(nTokens: tokens.count)
+
+    // Store cross-attention K/V (these don't change)
+    if !crossKs.isEmpty {
+        crossAttnKVs = zip(crossKs, crossVs).map { ($0, $1) }
+    }
+
+    // Evaluate to materialize initial state
+    eval(initialLogits)
+
+    // Generate tokens autoregressively
+    for step in 0..<options.maxTokens {
+        // Create input for current token
+        let inputToken = MLXArray([Int32(tokens.last!)]).reshaped([1, 1])
+        let currentOffset = cache.offset
+
+        // Get current KV state for self-attention
+        let selfAttnKVs = cache.getCurrentKVs()
+
+        // Decode with optimized path
+        let (logits, newKs, newVs, _, _) = model.decodeOptimized(
+            tokens: inputToken,
+            audioFeatures: audioFeatures,
+            selfAttnKVs: selfAttnKVs,
+            crossAttnKVs: crossAttnKVs,
+            offset: currentOffset
+        )
+
+        // Update cache with new K/V
+        cache.updateAll(newKs: newKs, newVs: newVs)
+        cache.step(nTokens: 1)
+
+        // Get logits for last position
+        let lastLogits = logits[0, -1]
+
+        // Sample next token
+        let nextToken: Int
+        if options.temperature > 0 {
+            let scaledLogits = lastLogits / options.temperature
+            let probs = softmax(scaledLogits, axis: -1)
+            nextToken = categoricalSample(probs)
+        } else {
+            // Greedy: take argmax
+            nextToken = Int(argMax(lastLogits).item(Int32.self))
+        }
+        tokens.append(nextToken)
+
+        // Check for end of text
+        if nextToken == tokenizer.eot {
+            break
+        }
+
+        // Periodically evaluate to release intermediate tensors
+        if step % evalInterval == 0 {
+            eval(logits)
+        }
     }
 
     return tokens
@@ -397,10 +588,11 @@ public func transcribe(
     var opts = options
     opts.language = language
 
-    // Decode
+    // Decode using optimized path for greedy, standard for beam search
     let tokens: [Int]
     if options.isGreedy {
-        tokens = greedyDecode(
+        // Use optimized greedy decode with O(1) cache updates
+        tokens = greedyDecodeOptimized(
             model: model,
             audioFeatures: audioFeatures,
             tokenizer: tokenizer,

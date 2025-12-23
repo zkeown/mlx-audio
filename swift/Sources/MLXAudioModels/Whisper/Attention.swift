@@ -130,6 +130,80 @@ public class MultiHeadAttention: Module {
 
         return (output, newKvCache)
     }
+
+    /// Forward pass with pre-allocated KV cache for O(1) updates.
+    ///
+    /// This version uses the provided K/V directly without concatenation,
+    /// suitable for use with `WhisperKVCache` which handles the append internally.
+    ///
+    /// - Parameters:
+    ///   - x: Query input [B, T, D]
+    ///   - xa: Key/value source for cross-attention [B, S, D].
+    ///         If nil, performs self-attention.
+    ///   - mask: Attention mask [T, S] or [B, T, S]
+    ///   - precomputedKV: Pre-computed (full_keys, full_values) from cache.
+    ///                    For self-attention, pass the already-concatenated KV.
+    /// - Returns: Tuple of output tensor [B, T, D] and (newK, newV) for this step
+    public func forwardOptimized(
+        _ x: MLXArray,
+        xa: MLXArray? = nil,
+        mask: MLXArray? = nil,
+        precomputedKV: (MLXArray, MLXArray)? = nil
+    ) -> (output: MLXArray, newK: MLXArray, newV: MLXArray) {
+        let B = x.dim(0)
+        let T = x.dim(1)
+
+        // Compute query
+        var q = query(x)
+
+        var k: MLXArray
+        var v: MLXArray
+        let newK: MLXArray
+        let newV: MLXArray
+
+        if let xa = xa {
+            // Cross-attention - compute K/V from encoder output
+            k = key(xa)
+            v = value(xa)
+            newK = k
+            newV = v
+        } else {
+            // Self-attention - compute new K/V for this step
+            newK = key(x)
+            newV = value(x)
+
+            // Use pre-computed full KV (from cache.update())
+            if let (fullK, fullV) = precomputedKV {
+                k = fullK
+                v = fullV
+            } else {
+                k = newK
+                v = newV
+            }
+        }
+
+        let S = k.dim(1)
+
+        // Reshape for multi-head attention
+        q = q.reshaped([B, T, nHead, headDim]).transposed(0, 2, 1, 3)
+        k = k.reshaped([B, S, nHead, headDim]).transposed(0, 2, 1, 3)
+        v = v.reshaped([B, S, nHead, headDim]).transposed(0, 2, 1, 3)
+
+        // Compute attention scores
+        var attn = (q.matmul(k.transposed(0, 1, 3, 2))) * scale
+
+        if let mask = mask {
+            attn = attn + mask
+        }
+
+        attn = softmax(attn, axis: -1)
+        var output = attn.matmul(v)
+
+        output = output.transposed(0, 2, 1, 3).reshaped([B, T, nState])
+        output = out(output)
+
+        return (output, newK, newV)
+    }
 }
 
 /// Residual attention block for Whisper transformer.
@@ -228,5 +302,67 @@ public class ResidualAttentionBlock: Module {
         x = x + mlpOut
 
         return (x, newKvCache)
+    }
+
+    /// Optimized forward pass with pre-allocated KV cache.
+    ///
+    /// Uses `forwardOptimized` on attention for O(1) cache updates.
+    ///
+    /// - Parameters:
+    ///   - x: Input tensor [B, T, D]
+    ///   - xa: Encoder output for cross-attention [B, S, D]
+    ///   - mask: Causal attention mask
+    ///   - precomputedKV: Pre-computed (full_keys, full_values) from cache
+    ///   - crossAttnKV: Cached cross-attention K/V (computed once, reused)
+    /// - Returns: Tuple of (output, newK, newV, crossK, crossV)
+    public func forwardOptimized(
+        _ x: MLXArray,
+        xa: MLXArray? = nil,
+        mask: MLXArray? = nil,
+        precomputedKV: (MLXArray, MLXArray)? = nil,
+        crossAttnKV: (MLXArray, MLXArray)? = nil
+    ) -> (output: MLXArray, newK: MLXArray, newV: MLXArray, crossK: MLXArray?, crossV: MLXArray?) {
+        var x = x
+
+        // Self-attention with optimized cache
+        let (attnOut, newK, newV) = attn.forwardOptimized(
+            attnLn(x),
+            mask: mask,
+            precomputedKV: precomputedKV
+        )
+        x = x + attnOut
+
+        // Cross-attention (if applicable)
+        var crossK: MLXArray?
+        var crossV: MLXArray?
+
+        if hasCrossAttention, let crossAttnLayer = crossAttn, let crossAttnLn = crossAttnLn, let xa = xa {
+            if let (cachedCrossK, cachedCrossV) = crossAttnKV {
+                // Reuse cached cross-attention K/V
+                let (crossOut, _, _) = crossAttnLayer.forwardOptimized(
+                    crossAttnLn(x),
+                    xa: nil,  // Not used when precomputedKV is provided
+                    precomputedKV: (cachedCrossK, cachedCrossV)
+                )
+                x = x + crossOut
+                crossK = cachedCrossK
+                crossV = cachedCrossV
+            } else {
+                // First pass: compute cross-attention K/V
+                let (crossOut, ck, cv) = crossAttnLayer.forwardOptimized(
+                    crossAttnLn(x),
+                    xa: xa
+                )
+                x = x + crossOut
+                crossK = ck
+                crossV = cv
+            }
+        }
+
+        // MLP
+        let mlpOut = mlp1(gelu(mlp0(mlpLn(x))))
+        x = x + mlpOut
+
+        return (x, newK, newV, crossK, crossV)
     }
 }

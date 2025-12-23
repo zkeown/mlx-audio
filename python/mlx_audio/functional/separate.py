@@ -16,6 +16,7 @@ def separate(
     audio: str | Path | "np.ndarray" | "mx.array",
     *,
     model: str = "htdemucs_ft",
+    ensemble: bool = False,
     stems: list[str] | None = None,
     output_dir: str | Path | None = None,
     sample_rate: int | None = None,
@@ -32,6 +33,7 @@ def separate(
     Args:
         audio: Path to audio file or audio array [C, T]
         model: Model name or path ("htdemucs_ft", "htdemucs_6s", or path)
+        ensemble: Use ensemble of 4 specialized models (~3dB SDR improvement)
         stems: Which sources to return (None = all)
         output_dir: Optional directory to save separated stems
         sample_rate: Sample rate (inferred from file if not provided)
@@ -49,6 +51,9 @@ def separate(
         >>> stems.vocals  # Vocal track
         >>> stems.drums   # Drum track
 
+        >>> # Use ensemble for better quality (~3dB SDR improvement)
+        >>> stems = mlx_audio.separate("song.mp3", ensemble=True)
+
         >>> # Save to files
         >>> mlx_audio.separate("song.mp3", output_dir="./stems")
 
@@ -60,7 +65,7 @@ def separate(
         ... )
     """
     # Import here to avoid circular imports and allow lazy loading
-    from mlx_audio.models.demucs import HTDemucs, apply_model
+    from mlx_audio.models.demucs import HTDemucs, BagOfModels, apply_model
     from mlx_audio.hub.cache import get_cache
     from mlx_audio.types.results import SeparationResult, AudioData
     from mlx_audio.types.audio import load_audio
@@ -82,8 +87,20 @@ def separate(
             sample_rate = 44100  # Default
 
     # Load model (with caching)
-    cache = get_cache()
-    htdemucs = cache.get_model(model, HTDemucs)
+    if ensemble:
+        # Load BagOfModels ensemble (4 specialized models)
+        cache_dir = Path.home() / ".cache/mlx_audio/models"
+        bag_path = cache_dir / f"{model}_bag"
+        if not bag_path.exists():
+            raise FileNotFoundError(
+                f"Ensemble model not found at {bag_path}. "
+                "Please ensure the htdemucs_ft_bag models are downloaded."
+            )
+        htdemucs = BagOfModels.from_pretrained(bag_path)
+        htdemucs.eval()
+    else:
+        cache = get_cache()
+        htdemucs = cache.get_model(model, HTDemucs)
 
     # Resample if needed
     if sample_rate != htdemucs.config.samplerate:

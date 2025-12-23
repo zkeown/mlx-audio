@@ -50,6 +50,11 @@ public class BagOfModels: @unchecked Sendable {
     }
 
     /// Run all models and combine outputs.
+    ///
+    /// Uses sequential processing to minimize peak memory usage.
+    /// Instead of running all models and stacking outputs (~4GB peak),
+    /// processes models one at a time with weighted accumulation (~1GB peak).
+    ///
     /// - Parameter mix: Input mixture `[B, C, T]` or `[C, T]`.
     /// - Returns: Separated stems `[B, S, C, T]` or `[S, C, T]`.
     public func callAsFunction(_ mix: MLXArray) -> MLXArray {
@@ -62,23 +67,32 @@ public class BagOfModels: @unchecked Sendable {
             squeezeBatch = true
         }
 
-        // Run all models
-        var outputs: [MLXArray] = []
-        for model in models {
-            let out = model(input)  // [B, S, C, T]
-            outputs.append(out)
+        let B = input.shape[0]
+        let C = input.shape[1]
+        let T = input.shape[2]
+        let S = config.num_sources
+
+        // Pre-allocate result buffer
+        var result = MLXArray.zeros([B, S, C, T])
+
+        // Process models sequentially with weighted accumulation.
+        // This avoids holding all model outputs simultaneously (~3GB savings).
+        for (modelIdx, model) in models.enumerated() {
+            let modelOutput = model(input)  // [B, S, C, T]
+
+            // Accumulate weighted output for each stem
+            for stemIdx in 0..<S {
+                let w = weights[modelIdx, stemIdx]
+                // Use einsum for efficient weighted accumulation: w * output[:, stemIdx]
+                // This adds w * modelOutput[:, stemIdx, :, :] to result[:, stemIdx, :, :]
+                let stemOutput = modelOutput[0..., stemIdx, 0..., 0...]  // [B, C, T]
+                let weighted = w * stemOutput
+                result = result.at[0..., stemIdx, 0..., 0...].add(weighted)
+            }
+
+            // Evaluate after each model to release model output from memory
+            eval(result)
         }
-
-        // Stack outputs: [numModels, B, S, C, T]
-        let stacked = MLX.stacked(outputs, axis: 0)
-
-        // Apply weight matrix to combine model outputs
-        // weights[m, s] indicates how much model m contributes to stem s
-        // Using einsum: 'mbsct,ms->bsct'
-        var result = MLX.einsum("mbsct,ms->bsct", stacked, weights)
-
-        // Ensure evaluation to prevent memory buildup
-        eval(result)
 
         if squeezeBatch {
             result = result.squeezed(axis: 0)

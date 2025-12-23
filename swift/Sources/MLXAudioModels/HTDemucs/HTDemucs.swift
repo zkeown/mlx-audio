@@ -271,6 +271,9 @@ public class HTDemucs: Module, @unchecked Sendable {
             timeSkips.append(xt)
         }
 
+        // Evaluate after encoder phase to release intermediate tensors
+        eval(x, xt)
+
         // Channel upsample before transformer
         // x is [B, F, T, C] in NHWC format
         let Bx = x.shape[0]
@@ -298,6 +301,9 @@ public class HTDemucs: Module, @unchecked Sendable {
         // Convert back to NHWC/NLC
         x = transformerOutput.freq.transposed(0, 2, 3, 1)  // [B, C, F, T] -> [B, F, T, C]
         xt = transformerOutput.time.transposed(0, 2, 1)   // [B, C, T] -> [B, T, C]
+
+        // Evaluate after transformer to release attention intermediates
+        eval(x, xt)
 
         // Flatten freq for downsample: [B, F, T, C] -> [B, F*T, C]
         xFlat = x.reshaped([Bx, Fx * Tx, -1])
@@ -332,6 +338,9 @@ public class HTDemucs: Module, @unchecked Sendable {
             let result = dec(xt, skip: skip, length: length)
             xt = result.output
         }
+
+        // Evaluate after decoder phase to release skip connections
+        eval(x, xt)
 
         // ===== FORMAT CONVERSION: NHWC/NLC -> NCHW/NCL =====
         // Convert back to PyTorch format for output processing

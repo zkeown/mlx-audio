@@ -18,6 +18,8 @@ let package = Package(
         .library(name: "MLXAudioModels", targets: ["MLXAudioModels"]),
         // Real-time audio streaming
         .library(name: "MLXAudioStreaming", targets: ["MLXAudioStreaming"]),
+        // On-device training and fine-tuning
+        .library(name: "MLXAudioTraining", targets: ["MLXAudioTraining"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.10.0"),
@@ -66,6 +68,20 @@ let package = Package(
             ]
         ),
 
+        // Training and fine-tuning support
+        .target(
+            name: "MLXAudioTraining",
+            dependencies: [
+                "MLXAudioModels",
+                "MLXAudioPrimitives",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+            ],
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+            ]
+        ),
+
         // Tests
         .testTarget(
             name: "MLXAudioPrimitivesTests",
@@ -87,6 +103,53 @@ let package = Package(
                 "MLXAudioPrimitives",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "Atomics", package: "swift-atomics"),
+            ]
+        ),
+        .testTarget(
+            name: "MLXAudioTrainingTests",
+            dependencies: [
+                "MLXAudioTraining",
+                "MLXAudioModels",
+                "MLXAudioPrimitives",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+            ]
+        ),
+
+        // Benchmark framework
+        .target(
+            name: "BenchmarkKit",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift"),
+            ],
+            path: "Benchmarks/Sources/BenchmarkKit"
+        ),
+
+        // Model benchmarks
+        .target(
+            name: "ModelBenchmarks",
+            dependencies: [
+                "BenchmarkKit",
+                "MLXAudioModels",
+                "MLXAudioPrimitives",
+                .product(name: "MLX", package: "mlx-swift"),
+            ],
+            path: "Benchmarks/Sources/ModelBenchmarks"
+        ),
+
+        // Benchmark executable
+        .executableTarget(
+            name: "MLXAudioBenchmarks",
+            dependencies: [
+                "BenchmarkKit",
+                "ModelBenchmarks",
+                "MLXAudioModels",
+                "MLXAudioPrimitives",
+                .product(name: "MLX", package: "mlx-swift"),
+            ],
+            path: "Benchmarks/Sources/MLXAudioBenchmarks",
+            swiftSettings: [
+                .unsafeFlags(["-parse-as-library"])
             ]
         ),
     ]

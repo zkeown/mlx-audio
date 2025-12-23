@@ -64,6 +64,33 @@ public class WhisperModel: Module {
         decoder(tokens: tokens, audioFeatures: audioFeatures, kvCache: kvCache)
     }
 
+    /// Optimized decode using pre-allocated KV cache.
+    ///
+    /// This version uses O(1) cache updates instead of O(n) concatenation.
+    ///
+    /// - Parameters:
+    ///   - tokens: Input token IDs [B, T]
+    ///   - audioFeatures: Encoder output [B, S, D]
+    ///   - selfAttnKVs: Pre-computed self-attention K/V per layer
+    ///   - crossAttnKVs: Cached cross-attention K/V per layer (fixed for sequence)
+    ///   - offset: Position offset for positional embeddings
+    /// - Returns: Tuple of (logits, newKs, newVs, crossKs, crossVs)
+    public func decodeOptimized(
+        tokens: MLXArray,
+        audioFeatures: MLXArray,
+        selfAttnKVs: [(MLXArray, MLXArray)]?,
+        crossAttnKVs: [(MLXArray, MLXArray)]?,
+        offset: Int
+    ) -> (logits: MLXArray, newKs: [MLXArray], newVs: [MLXArray], crossKs: [MLXArray], crossVs: [MLXArray]) {
+        decoder.forwardOptimized(
+            tokens: tokens,
+            audioFeatures: audioFeatures,
+            selfAttnKVs: selfAttnKVs,
+            crossAttnKVs: crossAttnKVs,
+            offset: offset
+        )
+    }
+
     /// Full forward pass.
     ///
     /// - Parameters:

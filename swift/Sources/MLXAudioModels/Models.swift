@@ -50,17 +50,20 @@ public struct ModelRegistry: Sendable {
             return "clap-htsat-fused"
         case .tts:
             return "parler-tts-mini"
+        case .codec:
+            return "encodec-24khz"
         }
     }
 }
 
 /// Audio processing tasks.
-public enum AudioTask: String, CaseIterable {
+public enum AudioTask: String, CaseIterable, Codable, Sendable {
     case separation
     case transcription
     case generation
     case embedding
     case tts
+    case codec
 }
 
 // MARK: - Model Implementations

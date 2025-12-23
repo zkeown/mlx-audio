@@ -59,6 +59,16 @@ class BagOfModels:
         """Model configuration (from first model)."""
         return self._config
 
+    def eval(self) -> "BagOfModels":
+        """Set all models to evaluation mode.
+
+        Returns:
+            self for method chaining
+        """
+        for model in self.models:
+            model.eval()
+        return self
+
     def __call__(self, mix: mx.array) -> mx.array:
         """Run all models and combine outputs.
 

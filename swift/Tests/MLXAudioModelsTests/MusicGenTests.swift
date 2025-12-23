@@ -222,7 +222,7 @@ final class MusicGenTests: XCTestCase {
 
         XCTAssertEqual(output.shape, [2, 10, 64])
         XCTAssertNotNil(cache)
-        XCTAssertEqual(cache?.selfAttnCache.count, 2)  // 2 layers
+        XCTAssertEqual(cache?.numLayers, 2)  // 2 layers
     }
 
     // MARK: - LM Head Tests
