@@ -461,3 +461,161 @@ class EnhancementResult(AudioData):
             "Original audio not stored. "
             "Use keep_original=True when calling enhance()."
         )
+
+
+@dataclass
+class ClassificationResult:
+    """Result from audio classification (single-label).
+
+    Attributes:
+        predicted_class: Predicted class index or name
+        probabilities: Class probabilities [num_classes]
+        class_names: Optional list of class names
+        top_k_classes: Top-k class indices or names
+        top_k_probs: Top-k probabilities
+        model_name: Name of the model used
+        metadata: Additional metadata
+    """
+
+    predicted_class: int | str
+    probabilities: "mx.array"
+    class_names: list[str] | None = None
+    top_k_classes: list[int | str] | None = None
+    top_k_probs: list[float] | None = None
+    model_name: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    @property
+    def confidence(self) -> float:
+        """Confidence of the top prediction."""
+        import mlx.core as mx
+
+        return float(mx.max(self.probabilities))
+
+    def get_probability(self, class_name: str | int) -> float:
+        """Get probability for a specific class.
+
+        Args:
+            class_name: Class name or index
+
+        Returns:
+            Probability for the class
+        """
+        if isinstance(class_name, str):
+            if self.class_names is None:
+                raise ValueError("No class names available")
+            idx = self.class_names.index(class_name)
+        else:
+            idx = class_name
+        return float(self.probabilities[idx])
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "predicted_class": self.predicted_class,
+            "confidence": self.confidence,
+            "top_k_classes": self.top_k_classes,
+            "top_k_probs": self.top_k_probs,
+            "class_names": self.class_names,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"ClassificationResult(class={self.predicted_class!r}, "
+            f"confidence={self.confidence:.2%})"
+        )
+
+
+@dataclass
+class TaggingResult:
+    """Result from audio tagging (multi-label classification).
+
+    Attributes:
+        tags: List of active tag indices or names
+        probabilities: Tag probabilities [num_tags]
+        tag_names: Optional list of all tag names
+        threshold: Threshold used for tagging
+        model_name: Name of the model used
+        metadata: Additional metadata
+    """
+
+    tags: list[int | str]
+    probabilities: "mx.array"
+    tag_names: list[str] | None = None
+    threshold: float = 0.5
+    model_name: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    def get_probability(self, tag: str | int) -> float:
+        """Get probability for a specific tag.
+
+        Args:
+            tag: Tag name or index
+
+        Returns:
+            Probability for the tag
+        """
+        if isinstance(tag, str):
+            if self.tag_names is None:
+                raise ValueError("No tag names available")
+            idx = self.tag_names.index(tag)
+        else:
+            idx = tag
+        return float(self.probabilities[idx])
+
+    def top_k(self, k: int = 5) -> list[tuple[str | int, float]]:
+        """Get top-k tags by probability.
+
+        Args:
+            k: Number of top tags to return
+
+        Returns:
+            List of (tag, probability) tuples
+        """
+        import mlx.core as mx
+
+        sorted_indices = mx.argsort(self.probabilities)[::-1][:k]
+        result = []
+        for idx in sorted_indices:
+            idx = int(idx)
+            prob = float(self.probabilities[idx])
+            name = self.tag_names[idx] if self.tag_names else idx
+            result.append((name, prob))
+        return result
+
+    def above_threshold(self, threshold: float | None = None) -> list[tuple[str | int, float]]:
+        """Get all tags above a threshold.
+
+        Args:
+            threshold: Probability threshold (default: use instance threshold)
+
+        Returns:
+            List of (tag, probability) tuples
+        """
+        if threshold is None:
+            threshold = self.threshold
+
+        result = []
+        for idx, prob in enumerate(self.probabilities):
+            prob_val = float(prob)
+            if prob_val >= threshold:
+                name = self.tag_names[idx] if self.tag_names else idx
+                result.append((name, prob_val))
+
+        # Sort by probability descending
+        return sorted(result, key=lambda x: x[1], reverse=True)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "tags": self.tags,
+            "threshold": self.threshold,
+            "top_5": self.top_k(5),
+            "tag_names": self.tag_names,
+        }
+
+    def __repr__(self) -> str:
+        tags_str = ", ".join(str(t) for t in self.tags[:5])
+        if len(self.tags) > 5:
+            tags_str += f", ... ({len(self.tags)} total)"
+        return f"TaggingResult(tags=[{tags_str}])"

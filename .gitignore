@@ -80,7 +80,7 @@ venv.bak/
 .ropeproject
 
 # mkdocs documentation
-/site
+site/
 
 # mypy
 .mypy_cache/
@@ -168,3 +168,14 @@ temp/
 # Profiling
 *.prof
 *.lprof
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.playground/
+Packages/
+Package.resolved

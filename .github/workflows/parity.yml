@@ -1,0 +1,23 @@
+name: Parity Tests
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"  # Sundays at 2am UTC
+  workflow_dispatch:
+
+jobs:
+  parity:
+    runs-on: macos-latest  # TODO: Change to self-hosted when runner configured
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          cd python
+          pip install -e ".[dev,test]"
+      - name: Run parity tests
+        run: |
+          cd python
+          pytest tests -m parity -v

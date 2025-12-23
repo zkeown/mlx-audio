@@ -1,0 +1,50 @@
+name: Swift
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'swift/**'
+      - '.github/workflows/swift.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'swift/**'
+      - '.github/workflows/swift.yml'
+
+jobs:
+  build-and-test:
+    # Requires macOS runner with Apple Silicon for Metal support
+    runs-on: macos-14  # M1 runner
+
+    defaults:
+      run:
+        working-directory: swift
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build -v
+
+      - name: Run tests
+        run: |
+          xcodebuild test \
+            -scheme MLXAudio-Package \
+            -destination 'platform=macOS' \
+            -resultBundlePath TestResults.xcresult \
+            -enableCodeCoverage YES
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: swift/TestResults.xcresult
+          retention-days: 7

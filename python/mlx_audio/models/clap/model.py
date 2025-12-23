@@ -10,6 +10,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_audio.models.clap.config import CLAPConfig, CLAPAudioConfig, CLAPTextConfig
+from mlx_audio.models.clap.feature_extractor import CLAPFeatureExtractor
 from mlx_audio.models.clap.layers.htsat import HTSAT, AudioFusion
 from mlx_audio.models.clap.layers.text_encoder import CLAPTextEncoder
 
@@ -83,6 +84,9 @@ class CLAP(nn.Module):
         # Learnable temperature (logit scale)
         self.logit_scale = mx.array([config.logit_scale_init])
 
+        # Feature extractor for audio preprocessing
+        self.feature_extractor = CLAPFeatureExtractor.from_config(config.audio)
+
     def encode_audio(
         self,
         audio: mx.array,
@@ -103,7 +107,7 @@ class CLAP(nn.Module):
         # Handle different input shapes
         if audio.ndim == 2:
             # Assume waveform [B, T] - needs mel conversion
-            audio = self._compute_mel(audio)
+            audio, is_longer = self._compute_mel(audio)
         elif audio.ndim == 3:
             # Add channel dim: [B, F, T] -> [B, 1, F, T]
             audio = audio[:, None, :, :]
@@ -211,34 +215,26 @@ class CLAP(nn.Module):
         """Forward pass."""
         return self.forward(audio, input_ids, attention_mask)
 
-    def _compute_mel(self, audio: mx.array) -> mx.array:
-        """Compute log-mel spectrogram from waveform.
+    def _compute_mel(self, audio: mx.array) -> tuple[mx.array, mx.array]:
+        """Compute log-mel spectrogram from waveform using HF-compatible preprocessing.
 
         Args:
             audio: Waveform [B, T]
 
         Returns:
-            Log-mel spectrogram [B, 1, F, T]
+            Tuple of:
+                - Log-mel spectrogram [B, C, F, T] where C=1 or 4 for fusion
+                - is_longer: Boolean tensor [B, 1] indicating which samples need fusion
         """
-        from mlx_audio.primitives import melspectrogram
+        # Use the feature extractor for HF-compatible preprocessing
+        result = self.feature_extractor(audio, return_tensors="mx")
+        mel = result["input_features"]  # [B, C, T, F]
+        is_longer = result["is_longer"]  # [B, 1]
 
-        # Compute mel spectrogram for entire batch at once (vectorized)
-        # melspectrogram supports batched input with shape (batch, samples)
-        mel = melspectrogram(
-            audio,
-            sr=self.config.audio.sample_rate,
-            n_fft=self.config.audio.n_fft,
-            hop_length=self.config.audio.hop_length,
-            n_mels=self.config.audio.n_mels,
-        )  # [B, F, T]
+        # Transpose from [B, C, T, F] to [B, C, F, T] for HTSAT
+        mel = mx.transpose(mel, (0, 1, 3, 2))
 
-        # Log mel
-        mel = mx.log(mel + 1e-10)
-
-        # Add channel dimension: [B, F, T] -> [B, 1, F, T]
-        mel = mel[:, None, :, :]
-
-        return mel
+        return mel, is_longer
 
     @classmethod
     def from_pretrained(
@@ -258,6 +254,16 @@ class CLAP(nn.Module):
             Loaded CLAP model
         """
         path = Path(path)
+
+        # Check if weights need conversion (PyTorch -> MLX)
+        weights_path = path / "model.safetensors"
+        needs_conversion = False
+        if weights_path.exists():
+            needs_conversion = cls._check_needs_conversion(weights_path)
+
+        if needs_conversion:
+            # Convert PyTorch weights to MLX format
+            path = cls._convert_weights(path)
 
         # Load config
         config_path = path / "config.json"
@@ -290,6 +296,41 @@ class CLAP(nn.Module):
         model.eval()
 
         return model
+
+    @staticmethod
+    def _check_needs_conversion(weights_path: Path) -> bool:
+        """Check if weights need PyTorch -> MLX conversion."""
+        from safetensors import safe_open
+        with safe_open(str(weights_path), framework="np") as f:
+            keys = list(f.keys())
+            # PyTorch weights have audio_model. prefix, MLX has audio_encoder.
+            return any(k.startswith("audio_model.") for k in keys)
+
+    @classmethod
+    def _convert_weights(cls, source_path: Path) -> Path:
+        """Convert PyTorch weights to MLX format."""
+        from mlx_audio.models.clap.convert import convert_clap_weights
+
+        # Create output path in cache directory
+        cache_dir = Path.home() / ".cache" / "mlx_audio"
+        model_name = source_path.name + "-mlx"
+        output_path = cache_dir / model_name
+
+        if (output_path / "model.safetensors").exists():
+            # Already converted
+            return output_path
+
+        print(f"Converting CLAP weights from {source_path} to MLX format...")
+
+        # Use the HuggingFace model ID if available
+        # The source_path might be a HF cache path
+        try:
+            convert_clap_weights(str(source_path), output_path)
+        except Exception:
+            # Try with the original repo ID
+            convert_clap_weights("laion/clap-htsat-fused", output_path)
+
+        return output_path
 
     def save_pretrained(self, path: str | Path) -> None:
         """Save model to directory.

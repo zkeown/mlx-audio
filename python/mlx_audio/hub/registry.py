@@ -21,6 +21,9 @@ class TaskType(Enum):
     VAD = "vad"
     ENHANCEMENT = "enhancement"
     DIARIZATION = "diarization"
+    SPEECH = "speech"
+    CLASSIFICATION = "classification"
+    TAGGING = "tagging"
 
 
 @dataclass
@@ -198,10 +201,10 @@ class ModelRegistry:
                 name="clap-htsat-fused",
                 task=TaskType.EMBEDDING,
                 model_class="mlx_audio.models.clap.CLAP",
-                default_repo="mlx-community/clap-htsat-fused",
+                default_repo="laion/clap-htsat-fused",
                 supported_repos=[
-                    "mlx-community/clap-htsat-fused",
                     "laion/clap-htsat-fused",
+                    "mlx-community/clap-htsat-fused",
                 ],
                 default_params={},
                 capabilities=["variable_length", "batched", "text_encoding"],
@@ -214,10 +217,10 @@ class ModelRegistry:
                 name="clap-htsat-unfused",
                 task=TaskType.EMBEDDING,
                 model_class="mlx_audio.models.clap.CLAP",
-                default_repo="mlx-community/clap-htsat-unfused",
+                default_repo="laion/clap-htsat-unfused",
                 supported_repos=[
-                    "mlx-community/clap-htsat-unfused",
                     "laion/clap-htsat-unfused",
+                    "mlx-community/clap-htsat-unfused",
                 ],
                 capabilities=["batched", "text_encoding"],
             ),
@@ -519,6 +522,41 @@ class ModelRegistry:
         # Add pattern for diarization models
         self._repo_patterns["ecapa"] = "ecapa-tdnn"
         self._repo_patterns["diarize"] = "ecapa-tdnn"
+
+        # Parler-TTS speech models
+        self.register(
+            ModelSpec(
+                name="parler-tts-mini",
+                task=TaskType.SPEECH,
+                model_class="mlx_audio.models.tts.ParlerTTS",
+                default_repo="mlx-community/parler-tts-mini",
+                supported_repos=[
+                    "mlx-community/parler-tts-mini",
+                    "parler-tts/parler-tts-mini-v1",
+                ],
+                default_params={"temperature": 1.0},
+                capabilities=["voice_description", "variable_length"],
+            ),
+            is_task_default=True,
+        )
+
+        self.register(
+            ModelSpec(
+                name="parler-tts-large",
+                task=TaskType.SPEECH,
+                model_class="mlx_audio.models.tts.ParlerTTS",
+                default_repo="mlx-community/parler-tts-large",
+                supported_repos=[
+                    "mlx-community/parler-tts-large",
+                    "parler-tts/parler-tts-large-v1",
+                ],
+                capabilities=["voice_description", "variable_length"],
+            ),
+        )
+
+        # Add pattern for TTS models
+        self._repo_patterns["parler"] = "parler-tts-mini"
+        self._repo_patterns["tts"] = "parler-tts-mini"
 
 
 def register_model(

@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 name = "mlx-audio"
 version = "0.1.0"
 description = "Complete audio ML toolkit for Apple Silicon: DSP primitives, data loading, training, and models"
-readme = "../README.md"
+readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [
@@ -56,6 +56,15 @@ dependencies = [
 train = [
     "wandb>=0.16.0",
 ]
+train-tensorboard = [
+    "tensorboardX>=2.6",
+]
+train-mlflow = [
+    "mlflow>=2.10.0",
+]
+train-all = [
+    "mlx-audio[train,train-tensorboard,train-mlflow]",
+]
 data = [
     "pyarrow>=14.0",
 ]
@@ -76,7 +85,7 @@ cloud = [
 
 # Combined extras
 full = [
-    "mlx-audio[train,data,audio,image,cloud]",
+    "mlx-audio[train-all,data,audio,image,cloud]",
 ]
 
 # Development
@@ -130,8 +139,10 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "parity: marks parity tests against reference implementations",
     "property: marks property-based tests using Hypothesis",
-    "benchmark: marks benchmark tests",
+    "benchmark: marks benchmark tests (weekly CI)",
+    "external: marks tests requiring external dataset downloads",
     "integration: marks integration tests",
+    "examples: marks training example tests",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
 addopts = "-v --tb=short --strict-markers"

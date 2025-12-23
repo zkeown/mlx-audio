@@ -442,6 +442,88 @@ def diarize(
     )
 
 
+def classify(
+    audio,
+    *,
+    model: str = "clap-htsat-fused",
+    labels: list[str] | None = None,
+    top_k: int = 1,
+    **kwargs,
+):
+    """Classify audio into predefined categories.
+
+    Uses CLAP embeddings with zero-shot classification via text similarity.
+    For trained classifiers, specify a model path or registry name.
+
+    Args:
+        audio: Path to audio file, numpy array, or MLX array
+        model: Model name, path, or CLAP model for zero-shot classification
+        labels: Class labels for zero-shot classification (required for CLAP)
+        top_k: Number of top predictions to return
+        **kwargs: Model-specific parameters
+
+    Returns:
+        ClassificationResult with prediction and probabilities
+
+    Examples:
+        >>> # Zero-shot classification
+        >>> result = mlx_audio.classify(
+        ...     "sound.wav",
+        ...     labels=["dog barking", "cat meowing", "bird singing"]
+        ... )
+        >>> print(f"Class: {result.predicted_class} ({result.confidence:.1%})")
+
+        >>> # With trained classifier
+        >>> result = mlx_audio.classify("audio.wav", model="./my_classifier")
+        >>> result.top_k_classes  # ["speech", "music"]
+    """
+    from mlx_audio.functional.classify import classify as _classify
+
+    return _classify(audio, model=model, labels=labels, top_k=top_k, **kwargs)
+
+
+def tag(
+    audio,
+    *,
+    model: str = "clap-htsat-fused",
+    tags: list[str] | None = None,
+    threshold: float = 0.5,
+    **kwargs,
+):
+    """Tag audio with multiple labels (multi-label classification).
+
+    Uses CLAP embeddings with zero-shot tagging via text similarity.
+    For trained taggers, specify a model path or registry name.
+
+    Args:
+        audio: Path to audio file, numpy array, or MLX array
+        model: Model name, path, or CLAP model for zero-shot tagging
+        tags: Tag labels for zero-shot tagging (required for CLAP)
+        threshold: Probability threshold for active tags
+        **kwargs: Model-specific parameters
+
+    Returns:
+        TaggingResult with active tags and probabilities
+
+    Examples:
+        >>> # Zero-shot tagging
+        >>> result = mlx_audio.tag(
+        ...     "music.wav",
+        ...     tags=["piano", "guitar", "drums", "vocals", "bass"]
+        ... )
+        >>> result.tags  # ["piano", "vocals"]
+        >>> result.top_k(3)  # [("piano", 0.92), ("vocals", 0.85), ("guitar", 0.45)]
+
+        >>> # With trained tagger
+        >>> result = mlx_audio.tag("audio.wav", model="./audioset_tagger")
+        >>> for t, prob in result.above_threshold():
+        ...     print(f"{t}: {prob:.1%}")
+    """
+    from mlx_audio.functional.tag import tag as _tag
+
+    return _tag(audio, model=model, tags=tags, threshold=threshold, **kwargs)
+
+
 # =============================================================================
 # PRIMITIVES (Re-exported for convenience)
 # =============================================================================
@@ -491,6 +573,8 @@ __all__ = [
     "detect_speech",
     "enhance",
     "diarize",
+    "classify",
+    "tag",
     # Primitives
     "stft",
     "istft",
