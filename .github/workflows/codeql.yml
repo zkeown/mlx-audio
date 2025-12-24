@@ -39,7 +39,7 @@ jobs:
           python-version: "3.11"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
@@ -47,7 +47,7 @@ jobs:
 
       - name: Autobuild (Python)
         if: matrix.language == 'python'
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Build C++ extensions
         if: matrix.language == 'c-cpp'
@@ -62,7 +62,7 @@ jobs:
           python -m pip install -e . --no-build-isolation -v 2>&1 || echo "Build completed (may have partial success)"
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{matrix.language}}"
 
