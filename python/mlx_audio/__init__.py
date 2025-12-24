@@ -28,18 +28,39 @@ Submodules:
 
 from mlx_audio._version import __version__
 
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    import mlx.core as mx
+    import numpy as np
+    from mlx_audio.types import (
+        SeparationResult,
+        TranscriptionResult,
+        GenerationResult,
+        CLAPEmbeddingResult,
+        VADResult,
+        EnhancementResult,
+        SpeechResult,
+        DiarizationResult,
+        ClassificationResult,
+        TaggingResult,
+    )
+
+# Type alias for audio input
+AudioInput = "str | np.ndarray | mx.array"
+
 # =============================================================================
 # HIGH-LEVEL API (One-liner functions)
 # =============================================================================
 
 
 def separate(
-    audio,
+    audio: AudioInput,
     *,
     model: str = "htdemucs_ft",
     stems: list[str] | None = None,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> "SeparationResult":
     """Separate audio into stems (vocals, drums, bass, other).
 
     Args:
@@ -63,7 +84,7 @@ def separate(
 
 
 def transcribe(
-    audio,
+    audio: AudioInput,
     *,
     model: str = "whisper-large-v3-turbo",
     language: str | None = None,
@@ -71,8 +92,8 @@ def transcribe(
     temperature: float = 0.0,
     beam_size: int = 1,
     word_timestamps: bool = False,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> "TranscriptionResult":
     """Transcribe speech to text.
 
     Args:
@@ -123,9 +144,9 @@ def generate(
     cfg_scale: float = 3.0,
     seed: int | None = None,
     output_file: str | None = None,
-    progress_callback=None,
-    **kwargs,
-):
+    progress_callback: Callable[[int, int], None] | None = None,
+    **kwargs: Any,
+) -> "GenerationResult":
     """Generate audio from text description.
 
     Args:
@@ -167,13 +188,13 @@ def generate(
 
 
 def embed(
-    audio=None,
-    text=None,
+    audio: "AudioInput | None" = None,
+    text: str | list[str] | None = None,
     *,
     model: str = "clap-htsat-fused",
     return_similarity: bool = False,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> "CLAPEmbeddingResult":
     """Compute audio and/or text embeddings using CLAP.
 
     CLAP (Contrastive Language-Audio Pretraining) encodes audio and text
@@ -219,15 +240,15 @@ def embed(
 
 
 def detect_speech(
-    audio,
+    audio: AudioInput,
     *,
     model: str = "silero-vad",
     threshold: float = 0.5,
     min_speech_duration: float = 0.25,
     min_silence_duration: float = 0.1,
     return_probabilities: bool = False,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> "VADResult":
     """Detect speech segments in audio.
 
     Voice Activity Detection (VAD) identifies which portions of audio contain
@@ -271,13 +292,13 @@ def detect_speech(
 
 
 def enhance(
-    audio,
+    audio: AudioInput,
     *,
     model: str = "deepfilternet2",
     method: str = "neural",
     keep_original: bool = False,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> "EnhancementResult":
     """Enhance audio quality by removing noise and improving clarity.
 
     Supports both neural (DeepFilterNet) and non-neural (spectral gating)
@@ -328,9 +349,9 @@ def speak(
     top_k: int = 50,
     seed: int | None = None,
     output_file: str | None = None,
-    progress_callback=None,
-    **kwargs,
-):
+    progress_callback: Callable[[int, int], None] | None = None,
+    **kwargs: Any,
+) -> "SpeechResult":
     """Convert text to speech.
 
     Generate natural speech from text using Parler-TTS. Supports voice
@@ -385,16 +406,16 @@ def speak(
 
 
 def diarize(
-    audio,
+    audio: AudioInput,
     *,
     model: str = "ecapa-tdnn",
     num_speakers: int | None = None,
     min_speakers: int = 1,
     max_speakers: int | None = None,
     return_embeddings: bool = False,
-    transcription=None,
-    **kwargs,
-):
+    transcription: "TranscriptionResult | None" = None,
+    **kwargs: Any,
+) -> "DiarizationResult":
     """Identify who spoke when in audio (speaker diarization).
 
     Segments audio by speaker identity, answering "who spoke when" without
@@ -443,13 +464,13 @@ def diarize(
 
 
 def classify(
-    audio,
+    audio: AudioInput,
     *,
     model: str = "clap-htsat-fused",
     labels: list[str] | None = None,
     top_k: int = 1,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> "ClassificationResult":
     """Classify audio into predefined categories.
 
     Uses CLAP embeddings with zero-shot classification via text similarity.
@@ -483,13 +504,13 @@ def classify(
 
 
 def tag(
-    audio,
+    audio: AudioInput,
     *,
     model: str = "clap-htsat-fused",
     tags: list[str] | None = None,
     threshold: float = 0.5,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> "TaggingResult":
     """Tag audio with multiple labels (multi-label classification).
 
     Uses CLAP embeddings with zero-shot tagging via text similarity.
