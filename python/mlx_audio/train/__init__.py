@@ -27,11 +27,29 @@ Example:
 
 __version__ = "0.1.0"
 
+from mlx_audio.train.callbacks.base import Callback, CallbackContext, CallbackPriority
 from mlx_audio.train.module import OptimizerConfig, TrainModule
+from mlx_audio.train.precompute import (
+    EmbeddingPreprocessor,
+    MelSpectrogramPreprocessor,
+    PrecomputeStats,
+    Preprocessor,
+    precompute_dataset,
+    run_precompute_cli,
+)
 from mlx_audio.train.trainer import Trainer
 
 __all__ = [
-    "TrainModule",
+    "Callback",
+    "CallbackContext",
+    "CallbackPriority",
+    "EmbeddingPreprocessor",
+    "MelSpectrogramPreprocessor",
     "OptimizerConfig",
+    "PrecomputeStats",
+    "Preprocessor",
+    "precompute_dataset",
+    "run_precompute_cli",
     "Trainer",
+    "TrainModule",
 ]

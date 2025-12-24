@@ -5,7 +5,7 @@ Orchestrates the training loop with MLX-native patterns.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -51,14 +51,28 @@ class Trainer:
         max_epochs: int | None = None,
         max_steps: int | None = None,
         val_check_interval: int | float = 1.0,
+        check_val_every_n_epoch: int = 1,
         gradient_clip_val: float | None = None,
         gradient_clip_algorithm: str = "norm",
+        accumulate_grad_batches: int = 1,
         default_root_dir: str = "./mlx_train_logs",
         enable_checkpointing: bool = True,
+        enable_progress_bar: bool = True,
+        enable_model_summary: bool = True,
         compile: bool = True,
         seed: int | None = None,
+        deterministic: bool = False,
         callbacks: list[Callback] | None = None,
         logger: Logger | list[Logger] | None = None,
+        log_every_n_steps: int = 50,
+        num_sanity_val_steps: int = 2,
+        fast_dev_run: bool | int = False,
+        limit_train_batches: int | float | None = None,
+        limit_val_batches: int | float | None = None,
+        limit_test_batches: int | float | None = None,
+        limit_predict_batches: int | float | None = None,
+        overfit_batches: int | float = 0,
+        detect_anomaly: bool = False,
         debug_lazy_eval: bool = False,
     ) -> None:
         """Initialize the Trainer.
@@ -71,31 +85,78 @@ class Trainer:
             val_check_interval: How often to run validation.
                 - float: Fraction of epoch (e.g., 0.5 = twice per epoch)
                 - int: Every N training steps
+            check_val_every_n_epoch: Run validation every N epochs.
             gradient_clip_val: Maximum gradient norm/value. None disables clipping.
             gradient_clip_algorithm: "norm" for L2 norm clipping, "value" for
                 element-wise clipping.
+            accumulate_grad_batches: Accumulate gradients over N batches before
+                updating. Effectively increases batch size without more memory.
             default_root_dir: Default directory for checkpoints and logs.
             enable_checkpointing: Whether to save checkpoints automatically.
+            enable_progress_bar: Whether to show progress bar during training.
+            enable_model_summary: Whether to print model summary at start.
             compile: Whether to use mx.compile for the training step.
             seed: Random seed for reproducibility.
+            deterministic: If True, sets seed and ensures reproducible behavior.
             callbacks: List of callbacks to use during training.
             logger: Logger or list of loggers for metric tracking.
+            log_every_n_steps: Log metrics every N training steps.
+            num_sanity_val_steps: Number of validation batches to run before
+                training starts to catch errors early. Set to 0 to disable.
+            fast_dev_run: If True, runs 1 batch of train/val/test for debugging.
+                If int, runs that many batches.
+            limit_train_batches: Limit training to N batches (int) or fraction (float).
+            limit_val_batches: Limit validation to N batches (int) or fraction (float).
+            limit_test_batches: Limit testing to N batches (int) or fraction (float).
+            limit_predict_batches: Limit prediction to N batches (int) or fraction.
+            overfit_batches: If > 0, uses only this many batches for train/val/test
+                and repeats them. Useful for debugging model capacity.
+            detect_anomaly: If True, checks for NaN/Inf in gradients.
             debug_lazy_eval: Enable debugging for lazy evaluation issues.
         """
+        # Handle fast_dev_run mode - overrides other settings
+        if fast_dev_run:
+            n_batches = 1 if fast_dev_run is True else int(fast_dev_run)
+            limit_train_batches = n_batches
+            limit_val_batches = n_batches
+            limit_test_batches = n_batches
+            limit_predict_batches = n_batches
+            max_epochs = 1
+            enable_checkpointing = False
+            num_sanity_val_steps = 0
+
         # Validation
         if max_epochs is None and max_steps is None:
             max_epochs = 1  # Default to 1 epoch
+
+        # Handle deterministic mode
+        if deterministic and seed is None:
+            seed = 42  # Default seed for deterministic mode
 
         # Configuration
         self.max_epochs = max_epochs
         self.max_steps = max_steps
         self.val_check_interval = val_check_interval
+        self.check_val_every_n_epoch = check_val_every_n_epoch
         self.gradient_clip_val = gradient_clip_val
         self.gradient_clip_algorithm = gradient_clip_algorithm
+        self.accumulate_grad_batches = accumulate_grad_batches
         self.default_root_dir = Path(default_root_dir)
         self.enable_checkpointing = enable_checkpointing
+        self.enable_progress_bar = enable_progress_bar
+        self.enable_model_summary = enable_model_summary
         self.compile = compile
         self.seed = seed
+        self.deterministic = deterministic
+        self.log_every_n_steps = log_every_n_steps
+        self.num_sanity_val_steps = num_sanity_val_steps
+        self.fast_dev_run = fast_dev_run
+        self.limit_train_batches = limit_train_batches
+        self.limit_val_batches = limit_val_batches
+        self.limit_test_batches = limit_test_batches
+        self.limit_predict_batches = limit_predict_batches
+        self.overfit_batches = overfit_batches
+        self.detect_anomaly = detect_anomaly
         self.debug_lazy_eval = debug_lazy_eval
 
         # State
@@ -115,11 +176,33 @@ class Trainer:
         else:
             self._loggers = [logger]
 
-        # Metrics buffer for current step
+        # Metrics buffers
         self._step_metrics: dict[str, float] = {}
+        self._callback_metrics: dict[str, float] = {}
+        self._logged_metrics: dict[str, float] = {}
+
+        # Overfit batches cache
+        self._overfit_cache: list[Any] | None = None
 
         # Debug state
         self._eval_count: int = 0
+
+    # ==================== PUBLIC PROPERTIES ====================
+
+    @property
+    def callback_metrics(self) -> dict[str, float]:
+        """All metrics logged in callbacks and training."""
+        return dict(self._callback_metrics)
+
+    @property
+    def logged_metrics(self) -> dict[str, float]:
+        """Metrics logged in the most recent step."""
+        return dict(self._logged_metrics)
+
+    @property
+    def progress_bar_metrics(self) -> dict[str, float]:
+        """Metrics for progress bar display (excludes internal metrics)."""
+        return {k: v for k, v in self._step_metrics.items() if not k.startswith("_")}
 
     # ==================== PUBLIC API ====================
 
@@ -141,12 +224,22 @@ class Trainer:
         self._setup(module, ckpt_path)
 
         try:
+            # Print model summary if enabled
+            if self.enable_model_summary:
+                self._print_model_summary(module)
+
+            # Run sanity validation before training
+            if self.num_sanity_val_steps > 0 and val_dataloader is not None:
+                self._run_sanity_validation(val_dataloader)
+
             self._callbacks.fire("on_fit_start", self, module)
+            self._callbacks.fire("on_train_start", self, module)
             module.on_train_start()
 
             self._run_training_loop(train_dataloader, val_dataloader)
 
             module.on_train_end()
+            self._callbacks.fire("on_train_end", self, module)
             self._callbacks.fire("on_fit_end", self, module)
         except Exception as e:
             self._callbacks.fire("on_exception", self, module, e)
@@ -196,7 +289,45 @@ class Trainer:
         """
         self._setup(module, ckpt_path, training=False)
         try:
-            return self._run_test(test_dataloader)
+            self._callbacks.fire("on_test_start", self, module, self._create_context())
+            module.on_test_start()
+
+            metrics = self._run_test(test_dataloader)
+
+            module.on_test_end()
+            self._callbacks.fire(
+                "on_test_end", self, module, self._create_context(), metrics
+            )
+            return metrics
+        finally:
+            self._teardown()
+
+    def predict(
+        self,
+        module: TrainModule,
+        dataloaders: DataLoader,
+        ckpt_path: str | None = None,
+    ) -> list[Any]:
+        """Run prediction and return outputs.
+
+        Args:
+            module: The TrainModule to use for prediction
+            dataloaders: Data iterator for prediction
+            ckpt_path: Optional checkpoint to load before prediction
+
+        Returns:
+            List of prediction outputs from predict_step
+        """
+        self._setup(module, ckpt_path, training=False)
+        try:
+            self._callbacks.fire("on_predict_start", self, module, self._create_context())
+            module.on_predict_start()
+
+            predictions = self._run_predict(dataloaders)
+
+            module.on_predict_end()
+            self._callbacks.fire("on_predict_end", self, module, self._create_context())
+            return predictions
         finally:
             self._teardown()
 
@@ -326,23 +457,32 @@ class Trainer:
         """
         from functools import partial
 
+        from mlx.utils import tree_flatten, tree_map, tree_unflatten
+
         # Capture optimizer reference for use in core_step
         optimizer = self._optimizer
         gradient_clip_val = self.gradient_clip_val
+        accumulate_grad_batches = self.accumulate_grad_batches
+        detect_anomaly = self.detect_anomaly
 
-        def loss_only_fn(model: TrainModule, batch: Any) -> mx.array:
-            """Loss function for nn.value_and_grad - returns only loss."""
-            loss, _ = model.compute_loss(batch)
-            return loss
+        # Storage for metrics from training_step
+        # NOTE: We store (loss, metrics_dict) and extract inside compiled region
+        step_result_cache: dict[str, Any] = {}
+
+        def training_step_fn(model: TrainModule, batch: Any, batch_idx: int) -> mx.array:
+            """Loss function for nn.value_and_grad - caches result, returns loss."""
+            result = model.training_step(batch, batch_idx)
+            step_result_cache["result"] = result
+            if isinstance(result, mx.array):
+                return result
+            return result["loss"]
 
         # Create value_and_grad function
-        loss_and_grad_fn = nn.value_and_grad(module, loss_only_fn)
+        loss_and_grad_fn = nn.value_and_grad(module, training_step_fn)
 
         # Gradient clipping helper (pure function)
         def clip_grads(grads: dict, clip_val: float) -> dict:
             """Apply gradient clipping - pure function."""
-            from mlx.utils import tree_flatten, tree_unflatten
-
             flat_grads = tree_flatten(grads)
             total_norm = mx.sqrt(
                 sum(mx.sum(g**2) for _, g in flat_grads if isinstance(g, mx.array))
@@ -356,23 +496,79 @@ class Trainer:
             ]
             return tree_unflatten(clipped)
 
+        # Gradient accumulation state
+        accumulated_grads: dict | None = None
+        accumulation_step = 0
+
+        def add_grads(g1: mx.array | None, g2: mx.array | None) -> mx.array | None:
+            """Add two gradient arrays, handling None."""
+            if g1 is None:
+                return g2
+            if g2 is None:
+                return g1
+            return g1 + g2
+
         # Core compute function - pure, no side effects
-        def core_step(batch: Any) -> tuple[mx.array, dict]:
-            """Pure computation: forward + backward + clip + update."""
+        def core_step(batch: Any, batch_idx: int) -> tuple[mx.array, dict, dict]:
+            """Pure computation: forward + backward + clip + update.
+
+            Returns (loss, grads, metrics_dict) where metrics values are mx.arrays.
+            """
+            nonlocal accumulated_grads, accumulation_step
+
             # Forward + backward
-            loss, grads = loss_and_grad_fn(module, batch)
+            loss, grads = loss_and_grad_fn(module, batch, batch_idx)
 
-            # Apply gradient clipping if configured
-            if gradient_clip_val is not None:
-                grads = clip_grads(grads, gradient_clip_val)
+            # Extract metrics from cached result (set by training_step_fn)
+            cached_result = step_result_cache.get("result")
+            if cached_result is None or isinstance(cached_result, mx.array):
+                metrics = {}
+            else:
+                metrics = {k: v for k, v in cached_result.items() if k != "loss"}
 
-            # Optimizer step
-            optimizer.update(module, grads)
+            # Gradient anomaly detection
+            if detect_anomaly:
+                self._check_gradients(grads)
 
-            return loss, grads
+            # Gradient accumulation
+            if accumulate_grad_batches > 1:
+                # Scale loss for accumulation
+                loss = loss / accumulate_grad_batches
+
+                if accumulated_grads is None:
+                    accumulated_grads = grads
+                else:
+                    accumulated_grads = tree_map(add_grads, accumulated_grads, grads)
+
+                accumulation_step += 1
+
+                # Only update when we've accumulated enough
+                if accumulation_step >= accumulate_grad_batches:
+                    grads = accumulated_grads
+
+                    # Apply gradient clipping if configured
+                    if gradient_clip_val is not None:
+                        grads = clip_grads(grads, gradient_clip_val)
+
+                    # Optimizer step
+                    optimizer.update(module, grads)
+
+                    # Reset accumulation state
+                    accumulated_grads = None
+                    accumulation_step = 0
+            else:
+                # No accumulation - standard path
+                if gradient_clip_val is not None:
+                    grads = clip_grads(grads, gradient_clip_val)
+                optimizer.update(module, grads)
+
+            return loss, grads, metrics
 
         # Optionally compile with state tracking
-        if self.compile:
+        # Note: Compile is disabled when using gradient accumulation because
+        # the nonlocal state tracking isn't compatible with mx.compile
+        use_compile = self.compile and accumulate_grad_batches == 1
+        if use_compile:
             # State includes model params, optimizer state, and random state
             # (random state needed for dropout, etc.)
             state = [module.state, optimizer.state, mx.random.state]
@@ -380,15 +576,16 @@ class Trainer:
             core_step = compiled(core_step)
 
         # Store state for _force_eval
-        if self.compile:
+        if use_compile:
             self._compile_state = [module.state, optimizer.state]
         else:
             self._compile_state = None
 
-        def step(batch: Any) -> tuple[mx.array, dict[str, Any]]:
+        def step(batch: Any, batch_idx: int) -> tuple[mx.array, dict[str, Any]]:
             """Full training step with callbacks."""
             # Pure computation (possibly compiled)
-            loss, grads = core_step(batch)
+            # Returns (loss, grads, metrics) where metrics are from training_step
+            loss, grads, metrics = core_step(batch, batch_idx)
 
             # Fire callbacks (outside compiled region)
             modified_grads = self._callbacks.fire(
@@ -404,11 +601,7 @@ class Trainer:
                 # Redo update with modified grads
                 optimizer.update(module, modified_grads)
 
-            self._callbacks.fire("on_before_optimizer_step", self, module)
-
-            # Compute metrics (outside compiled region to avoid trace issues)
-            # We do a lightweight forward pass for metrics
-            _, metrics = module.compute_loss(batch)
+            self._callbacks.fire("on_before_optimizer_step", self, module, optimizer)
 
             return loss, metrics
 
@@ -474,12 +667,15 @@ class Trainer:
         """Run a single training epoch."""
         ctx = self._create_context(batch_idx=0)
         self._callbacks.fire("on_train_epoch_start", self, self._module, ctx)
-        self._module.on_train_epoch_start(self.current_epoch)
+        self._module.on_train_epoch_start()
 
         epoch_metrics: dict[str, float] = {}
         epoch_length = 0
 
-        for batch_idx, batch in enumerate(train_dataloader):
+        # Apply batch limiting and overfit mode
+        dataloader = self._limit_batches(train_dataloader, self.limit_train_batches)
+
+        for batch_idx, batch in enumerate(dataloader):
             epoch_length += 1
 
             # Check step limit
@@ -489,8 +685,11 @@ class Trainer:
             ctx = self._create_context(batch_idx=batch_idx)
             self._callbacks.fire("on_train_batch_start", self, self._module, batch, ctx)
 
+            # Fire module hook
+            self._module.on_train_batch_start(batch, batch_idx)
+
             # Forward + backward + update
-            loss, metrics = self._step_fn(batch)
+            loss, metrics = self._step_fn(batch, batch_idx)
 
             # CRITICAL: Force evaluation
             # This is where MLX's lazy evaluation meets reality
@@ -500,32 +699,61 @@ class Trainer:
             loss_value = float(loss.item())
             self._step_metrics["train_loss"] = loss_value
 
-            # Add metrics from compute_loss
+            # Add metrics from training_step
             for k, v in metrics.items():
-                self._step_metrics[f"train_{k}"] = float(v.item())
+                if isinstance(v, mx.array):
+                    self._step_metrics[f"train_{k}"] = float(v.item())
+                else:
+                    self._step_metrics[f"train_{k}"] = float(v)
 
             self.global_step += 1
 
-            # Log to loggers
-            self._log_metrics(self._step_metrics, step=self.global_step)
+            # Update callback metrics
+            self._callback_metrics.update(self._step_metrics)
 
-            # Fire batch end callback
-            outputs = {"loss": loss_value, **{k: float(v.item()) for k, v in metrics.items()}}
+            # Log to loggers (respecting log_every_n_steps)
+            if self.global_step % self.log_every_n_steps == 0:
+                self._log_metrics(self._step_metrics, step=self.global_step)
+            self._logged_metrics = dict(self._step_metrics)
+
+            # Fire batch end callbacks
+            outputs = {"loss": loss_value}
+            for k, v in metrics.items():
+                if isinstance(v, mx.array):
+                    outputs[k] = float(v.item())
+                else:
+                    outputs[k] = float(v)
+
+            # Fire module hook
+            self._module.on_train_batch_end(outputs, batch, batch_idx)
+
             ctx = self._create_context(batch_idx=batch_idx)
             ctx.metrics.update(self._step_metrics)
             self._callbacks.fire("on_train_batch_end", self, self._module, batch, outputs, ctx)
 
             self._step_metrics.clear()
 
-            # Check for validation
-            if val_dataloader is not None and self._should_validate(batch_idx, epoch_length):
+            # Check for step-based validation (val_check_interval as int)
+            if (
+                val_dataloader is not None
+                and isinstance(self.val_check_interval, int)
+                and self._should_validate_step()
+            ):
                 val_metrics = self._run_validation(val_dataloader)
                 epoch_metrics.update(val_metrics)
 
-        # End of epoch
-        ctx = self._create_context(batch_idx=epoch_length - 1)
+        # End of epoch - check for epoch-based validation (val_check_interval as float)
+        if (
+            val_dataloader is not None
+            and isinstance(self.val_check_interval, float)
+            and self._should_validate_epoch()
+        ):
+            val_metrics = self._run_validation(val_dataloader)
+            epoch_metrics.update(val_metrics)
+
+        ctx = self._create_context(batch_idx=max(0, epoch_length - 1))
         ctx.metrics.update(epoch_metrics)
-        self._module.on_train_epoch_end(self.current_epoch, epoch_metrics)
+        self._module.on_train_epoch_end()
         self._callbacks.fire("on_train_epoch_end", self, self._module, ctx)
 
     def _run_validation(self, val_dataloader: DataLoader) -> dict[str, float]:
@@ -536,9 +764,18 @@ class Trainer:
 
         all_metrics: dict[str, list[float]] = {}
 
-        for batch_idx, batch in enumerate(val_dataloader):
+        # Apply batch limiting
+        dataloader = self._limit_batches(val_dataloader, self.limit_val_batches)
+
+        for batch_idx, batch in enumerate(dataloader):
+            # Fire batch start callback
+            ctx = self._create_context(batch_idx=batch_idx, is_validating=True)
+            self._callbacks.fire(
+                "on_validation_batch_start", self, self._module, batch, batch_idx, ctx
+            )
+
             # No gradients needed for validation
-            metrics = self._module.validation_step(batch)
+            metrics = self._module.validation_step(batch, batch_idx)
 
             # Evaluate and collect
             mx.eval(*[v for v in metrics.values() if isinstance(v, mx.array)])
@@ -548,14 +785,22 @@ class Trainer:
                 val = float(v.item()) if isinstance(v, mx.array) else float(v)
                 all_metrics[k].append(val)
 
+            # Fire batch end callback
+            outputs = {k: float(v.item()) if isinstance(v, mx.array) else float(v)
+                      for k, v in metrics.items()}
+            self._callbacks.fire(
+                "on_validation_batch_end", self, self._module, outputs, batch, batch_idx, ctx
+            )
+
         # Average metrics
         avg_metrics = {k: sum(v) / len(v) for k, v in all_metrics.items() if v}
 
         self._log_metrics(avg_metrics, step=self.global_step)
+        self._callback_metrics.update(avg_metrics)
 
         ctx = self._create_context(batch_idx=0, is_validating=True)
         ctx.metrics.update(avg_metrics)
-        self._module.on_validation_end(avg_metrics)
+        self._module.on_validation_end()
         self._callbacks.fire("on_validation_end", self, self._module, ctx, avg_metrics)
 
         return avg_metrics
@@ -564,8 +809,17 @@ class Trainer:
         """Run test loop."""
         all_metrics: dict[str, list[float]] = {}
 
-        for batch in test_dataloader:
-            metrics = self._module.test_step(batch)
+        # Apply batch limiting
+        dataloader = self._limit_batches(test_dataloader, self.limit_test_batches)
+
+        for batch_idx, batch in enumerate(dataloader):
+            # Fire batch start callback
+            ctx = self._create_context(batch_idx=batch_idx)
+            self._callbacks.fire(
+                "on_test_batch_start", self, self._module, batch, batch_idx, ctx
+            )
+
+            metrics = self._module.test_step(batch, batch_idx)
 
             mx.eval(*[v for v in metrics.values() if isinstance(v, mx.array)])
             for k, v in metrics.items():
@@ -574,20 +828,119 @@ class Trainer:
                 val = float(v.item()) if isinstance(v, mx.array) else float(v)
                 all_metrics[k].append(val)
 
+            # Fire batch end callback
+            outputs = {k: float(v.item()) if isinstance(v, mx.array) else float(v)
+                      for k, v in metrics.items()}
+            self._callbacks.fire(
+                "on_test_batch_end", self, self._module, outputs, batch, batch_idx, ctx
+            )
+
         avg_metrics = {k: sum(v) / len(v) for k, v in all_metrics.items() if v}
         self._log_metrics(avg_metrics, step=self.global_step)
+        self._callback_metrics.update(avg_metrics)
         return avg_metrics
 
-    def _should_validate(self, batch_idx: int, epoch_length: int) -> bool:
-        """Determine if validation should run."""
-        if isinstance(self.val_check_interval, float):
-            # Fraction of epoch - validate at end of epoch
-            return batch_idx == epoch_length - 1
-        else:
-            # Every N steps
-            step = self.global_step
-            interval = self.val_check_interval
-            return step > 0 and (step % interval) == 0
+    def _run_predict(self, dataloaders: DataLoader) -> list[Any]:
+        """Run prediction loop."""
+        predictions = []
+
+        # Apply batch limiting
+        dataloader = self._limit_batches(dataloaders, self.limit_predict_batches)
+
+        for batch_idx, batch in enumerate(dataloader):
+            # Fire batch start callback
+            ctx = self._create_context(batch_idx=batch_idx)
+            self._callbacks.fire(
+                "on_predict_batch_start", self, self._module, batch, batch_idx, ctx
+            )
+
+            pred = self._module.predict_step(batch, batch_idx)
+            mx.eval(pred)
+            predictions.append(pred)
+
+            # Fire batch end callback
+            self._callbacks.fire(
+                "on_predict_batch_end", self, self._module, pred, batch, batch_idx, ctx
+            )
+
+        return predictions
+
+    def _should_validate_epoch(self) -> bool:
+        """Check if validation should run at end of epoch."""
+        # Check epoch-based validation frequency
+        return (self.current_epoch + 1) % self.check_val_every_n_epoch == 0
+
+    def _should_validate_step(self) -> bool:
+        """Check if validation should run at current step."""
+        # Check epoch-based validation frequency first
+        if (self.current_epoch + 1) % self.check_val_every_n_epoch != 0:
+            return False
+        # Every N steps
+        interval = int(self.val_check_interval)
+        return self.global_step > 0 and (self.global_step % interval) == 0
+
+    def _limit_batches(
+        self, dataloader: DataLoader, limit: int | float | None
+    ) -> Generator[Any, None, None]:
+        """Limit the number of batches from a dataloader."""
+        if limit is None:
+            yield from dataloader
+            return
+
+        if isinstance(limit, float):
+            # For float, we'd need to know total length - just yield all for now
+            # (Lightning handles this by inspecting dataloader length)
+            yield from dataloader
+            return
+
+        # Integer limit
+        for i, batch in enumerate(dataloader):
+            if i >= limit:
+                break
+            yield batch
+
+    def _run_sanity_validation(self, val_dataloader: DataLoader) -> None:
+        """Run quick validation to catch errors early."""
+        print(f"Running sanity validation ({self.num_sanity_val_steps} batches)...")
+
+        self._callbacks.fire("on_sanity_check_start", self, self._module)
+
+        for batch_idx, batch in enumerate(val_dataloader):
+            if batch_idx >= self.num_sanity_val_steps:
+                break
+            metrics = self._module.validation_step(batch, batch_idx)
+            mx.eval(*[v for v in metrics.values() if isinstance(v, mx.array)])
+
+        self._callbacks.fire("on_sanity_check_end", self, self._module)
+        print("Sanity validation passed!")
+
+    def _print_model_summary(self, module: TrainModule) -> None:
+        """Print model summary with parameter counts."""
+        from mlx.utils import tree_flatten
+
+        params = tree_flatten(module.parameters())
+        total_params = sum(p.size for _, p in params if hasattr(p, "size"))
+
+        print("\n" + "=" * 60)
+        print(f"Model: {module.__class__.__name__}")
+        print(f"  Total parameters: {total_params:,}")
+        print("=" * 60 + "\n")
+
+    def _check_gradients(self, grads: dict[str, Any]) -> None:
+        """Check for NaN or Inf in gradients."""
+        from mlx.utils import tree_flatten
+
+        for key, grad in tree_flatten(grads):
+            if grad is not None and isinstance(grad, mx.array):
+                has_nan = mx.any(mx.isnan(grad))
+                has_inf = mx.any(mx.isinf(grad))
+                mx.eval(has_nan, has_inf)
+
+                if has_nan.item() or has_inf.item():
+                    raise RuntimeError(
+                        f"Gradient anomaly detected in {key}: "
+                        f"NaN={has_nan.item()}, Inf={has_inf.item()}"
+                    )
 
     def _force_eval(self, loss: mx.array, metrics: dict[str, mx.array]) -> None:
         """Force evaluation of lazy arrays."""

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import mlx.core as mx
+    import mlx.optimizers as optim
 
     from mlx_audio.train.module import TrainModule
     from mlx_audio.train.trainer import Trainer
@@ -87,6 +88,32 @@ class Callback(ABC):
 
     # ==================== Setup/Teardown ====================
 
+    def setup(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        stage: str,
+    ) -> None:
+        """Called at the beginning of fit/validate/test/predict.
+
+        Args:
+            stage: One of 'fit', 'validate', 'test', 'predict'
+        """
+        pass
+
+    def teardown(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        stage: str,
+    ) -> None:
+        """Called at the end of fit/validate/test/predict.
+
+        Args:
+            stage: One of 'fit', 'validate', 'test', 'predict'
+        """
+        pass
+
     def on_fit_start(self, trainer: Trainer, module: TrainModule) -> None:
         """Called at the very beginning of fit (training + validation)."""
         pass
@@ -96,6 +123,14 @@ class Callback(ABC):
         pass
 
     # ==================== Training Lifecycle ====================
+
+    def on_train_start(self, trainer: Trainer, module: TrainModule) -> None:
+        """Called at the start of training (after on_fit_start)."""
+        pass
+
+    def on_train_end(self, trainer: Trainer, module: TrainModule) -> None:
+        """Called at the end of training (before on_fit_end)."""
+        pass
 
     def on_train_epoch_start(
         self,
@@ -162,6 +197,134 @@ class Callback(ABC):
         """Called at the end of validation with aggregated metrics."""
         pass
 
+    def on_validation_batch_start(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        batch: Any,
+        batch_idx: int,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called before each validation batch."""
+        pass
+
+    def on_validation_batch_end(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        outputs: dict[str, Any],
+        batch: Any,
+        batch_idx: int,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called after each validation batch."""
+        pass
+
+    # ==================== Test Lifecycle ====================
+
+    def on_test_start(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called at the start of testing."""
+        pass
+
+    def on_test_end(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        ctx: CallbackContext,
+        metrics: dict[str, float],
+    ) -> None:
+        """Called at the end of testing with aggregated metrics."""
+        pass
+
+    def on_test_batch_start(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        batch: Any,
+        batch_idx: int,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called before each test batch."""
+        pass
+
+    def on_test_batch_end(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        outputs: dict[str, Any],
+        batch: Any,
+        batch_idx: int,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called after each test batch."""
+        pass
+
+    # ==================== Predict Lifecycle ====================
+
+    def on_predict_start(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called at the start of prediction."""
+        pass
+
+    def on_predict_end(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called at the end of prediction."""
+        pass
+
+    def on_predict_batch_start(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        batch: Any,
+        batch_idx: int,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called before each prediction batch."""
+        pass
+
+    def on_predict_batch_end(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+        ctx: CallbackContext,
+    ) -> None:
+        """Called after each prediction batch."""
+        pass
+
+    # ==================== Sanity Check ====================
+
+    def on_sanity_check_start(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+    ) -> None:
+        """Called before sanity check validation."""
+        pass
+
+    def on_sanity_check_end(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+    ) -> None:
+        """Called after sanity check validation."""
+        pass
+
     # ==================== Optimization Hooks ====================
 
     def on_before_backward(
@@ -200,11 +363,44 @@ class Callback(ABC):
         self,
         trainer: Trainer,
         module: TrainModule,
+        optimizer: optim.Optimizer,
     ) -> None:
-        """Called immediately before optimizer.update()."""
+        """Called immediately before optimizer.update().
+
+        Args:
+            optimizer: The optimizer being used for the update
+        """
         pass
 
     # ==================== Checkpoint Hooks ====================
+
+    def on_save_checkpoint(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        checkpoint: dict[str, Any],
+    ) -> None:
+        """Called when saving a checkpoint.
+
+        Allows modifying the checkpoint contents before saving.
+
+        Args:
+            checkpoint: Dictionary of checkpoint data to be saved
+        """
+        pass
+
+    def on_load_checkpoint(
+        self,
+        trainer: Trainer,
+        module: TrainModule,
+        checkpoint: dict[str, Any],
+    ) -> None:
+        """Called when loading a checkpoint.
+
+        Args:
+            checkpoint: Dictionary of loaded checkpoint data
+        """
+        pass
 
     def state_dict(self) -> dict[str, Any]:
         """Return callback state to be saved in checkpoints.

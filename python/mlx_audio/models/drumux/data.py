@@ -166,27 +166,41 @@ class EGMDDataset:
         config: SpectrogramConfig | None = None,
         seq_length: int = 512,
         stride: int = 256,
+        cache_spectrograms: bool = True,
+        cache_midi: bool = True,
     ):
         """Initialize dataset.
-        
+
         Args:
             dataset_dir: Path to E-GMD dataset
             split: Data split ('train', 'validation', 'test')
             config: Spectrogram configuration
             seq_length: Number of frames per sample
             stride: Stride between samples
+            cache_spectrograms: Cache spectrograms in memory (uses more RAM but faster)
+            cache_midi: Cache MIDI hits in memory (always recommended)
         """
         self.dataset_dir = Path(dataset_dir)
         self.config = config or SpectrogramConfig()
         self.seq_length = seq_length
         self.stride = stride
+        self.cache_spectrograms = cache_spectrograms
+        self.cache_midi = cache_midi
+
+        # Caches
+        self._spec_cache: dict[int, np.ndarray] = {}
+        self._midi_cache: dict[int, list[DrumHit]] = {}
 
         # Load metadata
         self.examples = list(self._load_examples(split))
-        
+
         # Pre-compute sample indices
         self.sample_indices: list[tuple[int, int]] = []
         self._compute_sample_indices()
+
+        # Pre-cache MIDI files (they're small and parsing is slow)
+        if self.cache_midi:
+            self._preload_midi()
 
     def _load_examples(self, split: str | None) -> Iterator[dict]:
         """Load examples from CSV."""
@@ -237,33 +251,65 @@ class EGMDDataset:
             for start in range(0, max(1, num_frames - self.seq_length), self.stride):
                 self.sample_indices.append((ex_idx, start))
 
+    def _preload_midi(self):
+        """Pre-load all MIDI files into memory."""
+        print(f"  Pre-loading {len(self.examples)} MIDI files...")
+        for ex_idx, example in enumerate(self.examples):
+            self._midi_cache[ex_idx] = load_midi_hits(example["midi_path"])
+
+    def _get_spectrogram(self, ex_idx: int) -> np.ndarray:
+        """Get spectrogram, using cache if enabled."""
+        if self.cache_spectrograms and ex_idx in self._spec_cache:
+            return self._spec_cache[ex_idx]
+
+        example = self.examples[ex_idx]
+        spec = load_spectrogram_cached(example["audio_path"], self.config)
+        spec_np = np.array(spec)  # Convert to numpy for slicing
+
+        if self.cache_spectrograms:
+            self._spec_cache[ex_idx] = spec_np
+
+        return spec_np
+
+    def _get_hits(self, ex_idx: int) -> list[DrumHit]:
+        """Get MIDI hits, using cache if enabled."""
+        if ex_idx in self._midi_cache:
+            return self._midi_cache[ex_idx]
+
+        example = self.examples[ex_idx]
+        hits = load_midi_hits(example["midi_path"])
+
+        if self.cache_midi:
+            self._midi_cache[ex_idx] = hits
+
+        return hits
+
     def __len__(self) -> int:
         return len(self.sample_indices)
 
     def __getitem__(self, idx: int) -> dict[str, mx.array]:
         """Get a training sample."""
         ex_idx, frame_start = self.sample_indices[idx]
-        example = self.examples[ex_idx]
 
-        # Load spectrogram
-        full_spec = load_spectrogram_cached(example["audio_path"], self.config)
+        # Load spectrogram (cached)
+        full_spec = self._get_spectrogram(ex_idx)
 
-        # Extract window
+        # Extract window using numpy (faster than mx slicing)
         frame_end = frame_start + self.seq_length
         if frame_end > full_spec.shape[1]:
             # Pad if necessary
-            spec = mx.zeros((self.config.n_mels, self.seq_length))
+            spec = np.zeros((self.config.n_mels, self.seq_length), dtype=np.float32)
             valid_len = full_spec.shape[1] - frame_start
-            spec = spec.at[:, :valid_len].add(full_spec[:, frame_start:])
+            spec[:, :valid_len] = full_spec[:, frame_start:frame_start + valid_len]
         else:
             spec = full_spec[:, frame_start:frame_end]
 
         # Transpose to (time, freq) and add channel dim -> (time, freq, 1)
-        spec = mx.transpose(spec, (1, 0))
-        spec = mx.expand_dims(spec, axis=-1)
+        spec = np.transpose(spec, (1, 0))
+        spec = np.expand_dims(spec, axis=-1)
 
-        # Load hits and create targets
-        hits = load_midi_hits(example["midi_path"])
+        # Load hits (cached) and create targets
+        hits = self._get_hits(ex_idx)
 
         # Filter hits to this window
         start_time = self.config.frame_to_time(frame_start)
@@ -283,7 +329,7 @@ class EGMDDataset:
         )
 
         return {
-            "spectrogram": spec,
+            "spectrogram": mx.array(spec),
             "onset_target": onset_target,
             "velocity_target": velocity_target,
         }
@@ -293,37 +339,140 @@ def create_dataloader(
     dataset: EGMDDataset,
     batch_size: int = 32,
     shuffle: bool = True,
+    num_workers: int = 0,
+    prefetch_factor: int = 2,
 ) -> Iterator[dict[str, mx.array]]:
-    """Create a simple dataloader that yields batches.
-    
-    This is a generator that yields batches indefinitely.
-    For finite iteration, track steps externally.
+    """Create a dataloader that yields batches.
+
+    Args:
+        dataset: The dataset to load from
+        batch_size: Number of samples per batch
+        shuffle: Whether to shuffle indices each epoch
+        num_workers: Number of background worker threads (0 = main thread only)
+        prefetch_factor: Number of batches to prefetch per worker
+
+    Returns:
+        Iterator yielding batches indefinitely
     """
+    if num_workers > 0:
+        return _create_prefetching_dataloader(
+            dataset, batch_size, shuffle, num_workers, prefetch_factor
+        )
+    else:
+        return _create_simple_dataloader(dataset, batch_size, shuffle)
+
+
+def _create_simple_dataloader(
+    dataset: EGMDDataset,
+    batch_size: int,
+    shuffle: bool,
+) -> Iterator[dict[str, mx.array]]:
+    """Simple single-threaded dataloader."""
     indices = list(range(len(dataset)))
-    
+
     while True:
         if shuffle:
             np.random.shuffle(indices)
-        
+
         for start in range(0, len(indices), batch_size):
             batch_indices = indices[start:start + batch_size]
-            
-            # Collect batch
+
+            # Collect batch using numpy arrays
             specs = []
             onsets = []
             velocities = []
-            
+
             for idx in batch_indices:
                 sample = dataset[idx]
-                specs.append(sample["spectrogram"])
-                onsets.append(sample["onset_target"])
-                velocities.append(sample["velocity_target"])
-            
+                specs.append(np.array(sample["spectrogram"]))
+                onsets.append(np.array(sample["onset_target"]))
+                velocities.append(np.array(sample["velocity_target"]))
+
             yield {
-                "spectrogram": mx.stack(specs),
-                "onset_target": mx.stack(onsets),
-                "velocity_target": mx.stack(velocities),
+                "spectrogram": mx.array(np.stack(specs)),
+                "onset_target": mx.array(np.stack(onsets)),
+                "velocity_target": mx.array(np.stack(velocities)),
             }
+
+
+def _create_prefetching_dataloader(
+    dataset: EGMDDataset,
+    batch_size: int,
+    shuffle: bool,
+    num_workers: int,
+    prefetch_factor: int,
+) -> Iterator[dict[str, mx.array]]:
+    """Prefetching dataloader with background workers."""
+    from concurrent.futures import ThreadPoolExecutor
+    from queue import Queue
+    import threading
+
+    # Queue for prefetched batches
+    prefetch_queue: Queue = Queue(maxsize=num_workers * prefetch_factor)
+    stop_event = threading.Event()
+
+    def batch_loader(batch_indices: list[int]) -> dict[str, np.ndarray]:
+        """Load a batch of samples (runs in worker thread)."""
+        specs = []
+        onsets = []
+        velocities = []
+
+        for idx in batch_indices:
+            sample = dataset[idx]
+            specs.append(np.array(sample["spectrogram"]))
+            onsets.append(np.array(sample["onset_target"]))
+            velocities.append(np.array(sample["velocity_target"]))
+
+        return {
+            "spectrogram": np.stack(specs),
+            "onset_target": np.stack(onsets),
+            "velocity_target": np.stack(velocities),
+        }
+
+    def prefetch_worker():
+        """Worker that prefetches batches into the queue."""
+        indices = list(range(len(dataset)))
+        executor = ThreadPoolExecutor(max_workers=num_workers)
+
+        while not stop_event.is_set():
+            if shuffle:
+                np.random.shuffle(indices)
+
+            # Submit batches to thread pool
+            futures = []
+            for start in range(0, len(indices), batch_size):
+                if stop_event.is_set():
+                    break
+                batch_indices = indices[start:start + batch_size]
+                future = executor.submit(batch_loader, batch_indices)
+                futures.append(future)
+
+            # Collect results and put in queue
+            for future in futures:
+                if stop_event.is_set():
+                    break
+                try:
+                    batch_np = future.result()
+                    prefetch_queue.put(batch_np)
+                except Exception as e:
+                    print(f"Worker error: {e}")
+
+        executor.shutdown(wait=False)
+
+    # Start prefetch thread
+    prefetch_thread = threading.Thread(target=prefetch_worker, daemon=True)
+    prefetch_thread.start()
+
+    try:
+        while True:
+            batch_np = prefetch_queue.get()
+            yield {
+                "spectrogram": mx.array(batch_np["spectrogram"]),
+                "onset_target": mx.array(batch_np["onset_target"]),
+                "velocity_target": mx.array(batch_np["velocity_target"]),
+            }
+    finally:
+        stop_event.set()
 
 
 def compute_class_weights(

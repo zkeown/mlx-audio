@@ -78,23 +78,22 @@ class MaskedMSELoss:
         mask: mx.array,
     ) -> mx.array:
         """Compute masked MSE.
-        
+
         Args:
             pred: Predictions (batch, time, num_classes)
             target: Targets (batch, time, num_classes)
             mask: Binary mask (batch, time, num_classes)
-            
+
         Returns:
             Scalar loss (or 0 if no positives)
         """
         # Only compute loss where mask is positive
+        # Use mx.maximum to avoid division by zero without triggering eval
         mask_sum = mx.sum(mask)
-        if mask_sum == 0:
-            return mx.array(0.0)
-
         squared_error = (pred - target) ** 2
         masked_error = squared_error * mask
-        return mx.sum(masked_error) / mask_sum
+        # Safe division: if mask_sum is 0, result will be 0/1 = 0
+        return mx.sum(masked_error) / mx.maximum(mask_sum, mx.array(1.0))
 
 
 class DrumuxTrainModule(TrainModule):
@@ -151,17 +150,20 @@ class DrumuxTrainModule(TrainModule):
         """Forward pass - delegates to model."""
         return self.model(x)
 
-    def compute_loss(self, batch: dict) -> tuple[mx.array, dict[str, mx.array]]:
-        """Compute training loss.
-        
+    def training_step(
+        self, batch: dict, batch_idx: int
+    ) -> dict[str, mx.array]:
+        """Compute training loss (Lightning-compatible API).
+
         Args:
             batch: Dict with keys:
                 - spectrogram: (batch, time, freq, 1)
                 - onset_target: (batch, time, num_classes)
                 - velocity_target: (batch, time, num_classes)
-                
+            batch_idx: Current batch index
+
         Returns:
-            Tuple of (loss, metrics_dict)
+            Dict with 'loss' and additional metrics
         """
         spec = batch["spectrogram"]
         onset_target = batch["onset_target"]
@@ -182,22 +184,22 @@ class DrumuxTrainModule(TrainModule):
             + self.velocity_loss_weight * velocity_loss
         )
 
-        # Metrics
-        metrics = {
+        return {
+            "loss": loss,
             "onset_loss": onset_loss,
             "velocity_loss": velocity_loss,
         }
 
-        return loss, metrics
-
-    def validation_step(self, batch: dict) -> dict[str, mx.array]:
+    def validation_step(
+        self, batch: dict, batch_idx: int = 0
+    ) -> dict[str, mx.array]:
         """Validation step with additional metrics."""
-        loss, metrics = self.compute_loss(batch)
-        
+        result = self.training_step(batch, batch_idx)
+
         # Compute F1 metrics
         spec = batch["spectrogram"]
         onset_target = batch["onset_target"]
-        
+
         onset_logits, _ = self.model(spec)
         onset_probs = mx.sigmoid(onset_logits)
         onset_preds = (onset_probs > 0.5).astype(mx.float32)
@@ -212,13 +214,27 @@ class DrumuxTrainModule(TrainModule):
         f1 = 2 * precision * recall / (precision + recall + 1e-8)
 
         return {
-            "val_loss": loss,
-            "val_onset_loss": metrics["onset_loss"],
-            "val_velocity_loss": metrics["velocity_loss"],
+            "val_loss": result["loss"],
+            "val_onset_loss": result["onset_loss"],
+            "val_velocity_loss": result["velocity_loss"],
             "val_precision": precision,
             "val_recall": recall,
             "val_f1": f1,
         }
+
+    def predict_step(
+        self, batch: dict, batch_idx: int = 0
+    ) -> tuple[mx.array, mx.array]:
+        """Prediction step - returns onset logits and velocities.
+
+        Args:
+            batch: Dict with 'spectrogram' key
+
+        Returns:
+            Tuple of (onset_logits, velocity)
+        """
+        spec = batch["spectrogram"]
+        return self.model(spec)
 
     def configure_optimizers(self) -> OptimizerConfig:
         """Configure optimizer with warmup + cosine schedule."""

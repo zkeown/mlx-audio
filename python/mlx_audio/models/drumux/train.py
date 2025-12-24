@@ -67,6 +67,18 @@ def main():
         default=42,
         help="Random seed",
     )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="Number of data loading workers",
+    )
+    parser.add_argument(
+        "--accumulate-grad-batches",
+        type=int,
+        default=1,
+        help="Accumulate gradients over N batches (effective batch = batch-size * N)",
+    )
 
     args = parser.parse_args()
 
@@ -87,6 +99,8 @@ def main():
         config=spec_config,
         seq_length=512,
         stride=256,
+        cache_spectrograms=False,  # Disable to save memory
+        cache_midi=True,  # MIDI is small, keep cached
     )
     val_dataset = EGMDDataset(
         args.data,
@@ -94,6 +108,8 @@ def main():
         config=spec_config,
         seq_length=512,
         stride=256,
+        cache_spectrograms=False,
+        cache_midi=True,
     )
 
     print(f"Train samples: {len(train_dataset):,}")
@@ -105,15 +121,28 @@ def main():
     print(f"Class weights: min={float(pos_weight.min()):.1f}, max={float(pos_weight.max()):.1f}")
 
     # Create dataloaders
-    train_loader = create_dataloader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = create_dataloader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    train_loader = create_dataloader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+    )
+    val_loader = create_dataloader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=max(1, args.num_workers // 2),
+    )
 
     # Calculate steps
     steps_per_epoch = len(train_dataset) // args.batch_size
     total_steps = steps_per_epoch * args.epochs
 
+    effective_batch = args.batch_size * args.accumulate_grad_batches
     print(f"\nSteps per epoch: {steps_per_epoch:,}")
     print(f"Total steps: {total_steps:,}")
+    if args.accumulate_grad_batches > 1:
+        print(f"Effective batch size: {effective_batch} (batch={args.batch_size} × accum={args.accumulate_grad_batches})")
 
     # Create model
     print(f"\nCreating {args.preset} model...")
@@ -131,6 +160,7 @@ def main():
         max_epochs=args.epochs,
         val_check_interval=1.0,  # Validate every epoch
         gradient_clip_val=1.0,
+        accumulate_grad_batches=args.accumulate_grad_batches,
         default_root_dir=str(args.checkpoint_dir),
         enable_checkpointing=True,
         compile=True,
