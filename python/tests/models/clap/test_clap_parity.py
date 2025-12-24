@@ -178,8 +178,9 @@ class TestCLAPEmbedAPI:
     def test_embed_raises_without_input(self):
         """Test that embed raises without audio or text."""
         from mlx_audio.functional.embed import embed
+        from mlx_audio.exceptions import ConfigurationError
 
-        with pytest.raises(ValueError, match="At least one of audio or text"):
+        with pytest.raises(ConfigurationError, match="At least one of audio or text"):
             embed()
 
     @pytest.mark.skipif(

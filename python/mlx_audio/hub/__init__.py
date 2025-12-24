@@ -10,6 +10,15 @@ from mlx_audio.hub.cache import (
     clear_cache,
     preload_models,
 )
+from mlx_audio.hub.licenses import (
+    LicenseInfo,
+    LicenseType,
+    NonCommercialModelWarning,
+    get_license_info,
+    is_commercial_safe,
+    list_commercial_safe_models,
+    list_non_commercial_models,
+)
 from mlx_audio.hub.registry import (
     ModelRegistry,
     ModelSpec,
@@ -24,6 +33,14 @@ __all__ = [
     "configure_cache",
     "clear_cache",
     "preload_models",
+    # Licenses
+    "LicenseInfo",
+    "LicenseType",
+    "NonCommercialModelWarning",
+    "get_license_info",
+    "is_commercial_safe",
+    "list_commercial_safe_models",
+    "list_non_commercial_models",
     # Registry
     "ModelRegistry",
     "ModelSpec",

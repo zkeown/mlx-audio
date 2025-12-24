@@ -2,6 +2,8 @@
 
 [![Python CI](https://github.com/zkeown/mlx-audio/actions/workflows/python-ci.yml/badge.svg)](https://github.com/zkeown/mlx-audio/actions/workflows/python-ci.yml)
 [![Swift](https://github.com/zkeown/mlx-audio/actions/workflows/swift.yml/badge.svg)](https://github.com/zkeown/mlx-audio/actions/workflows/swift.yml)
+[![codecov](https://codecov.io/gh/zkeown/mlx-audio/branch/main/graph/badge.svg)](https://codecov.io/gh/zkeown/mlx-audio)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://zkeown.github.io/mlx-audio/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20iOS-lightgrey.svg)](https://www.apple.com/macos/)
@@ -9,6 +11,13 @@
 **Complete audio ML toolkit for Apple Silicon**
 
 Speech recognition, music generation, source separation, audio embeddings, and more — all running natively on your Mac using [MLX](https://github.com/ml-explore/mlx).
+
+## Why mlx-audio?
+
+- **Native Apple Silicon** — No CUDA, no Docker, just `pip install`
+- **Unified Memory** — Large models run efficiently on 8GB Macs
+- **One-Liners** — Complex audio tasks in a single function call
+- **Python + Swift** — Same API for scripts and native apps
 
 ## Installation
 
@@ -183,6 +192,19 @@ mlx-audio/
         ├── MLXAudioStreaming/  # Real-time audio
         └── MLXAudioTraining/   # On-device training
 ```
+
+## Performance
+
+Benchmarks on M1 MacBook Pro (16GB):
+
+| Task | Input | Time |
+|------|-------|------|
+| Transcribe | 30s audio | <3s |
+| Separate stems | 3-min song | <5s |
+| Generate music | 10s output | <15s |
+| Embed audio | 10s clip | <100ms |
+
+*Performance varies by model size and hardware.*
 
 ## Requirements
 

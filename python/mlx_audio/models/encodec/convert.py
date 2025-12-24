@@ -5,13 +5,77 @@ Converts PyTorch EnCodec weights to MLX safetensors format.
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
 
 import mlx.core as mx
 import numpy as np
+
+from mlx_audio.models.base.weight_converter import WeightConverter
+
+
+class EnCodecConverter(WeightConverter):
+    """Converter for EnCodec PyTorch weights to MLX format.
+
+    Handles:
+    - Skipping BatchNorm running statistics
+    - Transposing conv kernels from PyTorch to MLX format
+    - Key mapping for encoder/decoder/quantizer modules
+
+    Example:
+        >>> converter = EnCodecConverter()
+        >>> converter.convert("encodec.pt", "encodec/model.safetensors")
+    """
+
+    model_name = "encodec"
+
+    SKIP_PATTERNS = [
+        r"num_batches_tracked",
+        r"running_mean",
+        r"running_var",
+    ]
+
+    KEY_MAPPINGS = [
+        # Encoder mappings
+        (r"^encoder\.", "encoder."),
+        # Decoder mappings
+        (r"^decoder\.", "decoder."),
+        # Quantizer mappings
+        (r"^quantizer\.vq\.", "quantizer.layers."),
+        (r"^quantizer\.codebook\.", "quantizer.layers."),
+    ]
+
+    def map_key(self, pt_key: str) -> str | None:
+        """Map PyTorch EnCodec key to MLX key."""
+        for pattern in self.SKIP_PATTERNS:
+            if re.search(pattern, pt_key):
+                return None
+
+        mlx_key = pt_key
+        for pattern, replacement in self.KEY_MAPPINGS:
+            mlx_key = re.sub(pattern, replacement, mlx_key)
+
+        return mlx_key
+
+    def transform_weight(self, key: str, np_array: np.ndarray) -> np.ndarray:
+        """Transform weight array for MLX format."""
+        shape = np_array.shape
+
+        # Conv1d: PyTorch [out, in, K] -> MLX [out, K, in]
+        if len(shape) == 3 and key.endswith('.weight'):
+            if 'conv' in key.lower():
+                np_array = np.transpose(np_array, (0, 2, 1))
+
+        # ConvTranspose1d: PyTorch [in, out, K] -> MLX [out, K, in]
+        if len(shape) == 3 and 'transpose' in key.lower():
+            np_array = np.transpose(np_array, (1, 2, 0))
+
+        return np_array
+
+
+# Module-level converter instance
+_converter = EnCodecConverter()
 
 
 def convert_encodec_weights(
@@ -29,116 +93,7 @@ def convert_encodec_weights(
     Returns:
         Dictionary of MLX arrays
     """
-    try:
-        import torch
-    except ImportError:
-        raise ImportError(
-            "PyTorch is required for weight conversion. "
-            "Install with: pip install torch"
-        )
-
-    pytorch_path = Path(pytorch_path)
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load PyTorch checkpoint
-    print(f"Loading PyTorch checkpoint from {pytorch_path}...")
-
-    if pytorch_path.is_dir():
-        # HuggingFace format
-        weights_file = pytorch_path / "pytorch_model.bin"
-        if not weights_file.exists():
-            weights_file = pytorch_path / "model.safetensors"
-        state_dict = torch.load(weights_file, map_location="cpu", weights_only=True)
-    else:
-        checkpoint = torch.load(pytorch_path, map_location="cpu", weights_only=False)
-        if isinstance(checkpoint, dict):
-            state_dict = checkpoint.get("state_dict", checkpoint.get("model", checkpoint))
-        else:
-            state_dict = checkpoint.state_dict()
-
-    # Convert weights
-    print(f"Converting {len(state_dict)} parameters...")
-    mlx_weights = {}
-    skipped = []
-
-    for pt_key, pt_tensor in state_dict.items():
-        # Map PyTorch key to MLX key
-        mlx_key = _map_encodec_key(pt_key)
-
-        if mlx_key is None:
-            skipped.append(pt_key)
-            continue
-
-        # Convert to numpy and transform for MLX format
-        np_array = pt_tensor.detach().cpu().numpy()
-        np_array = _transform_encodec_weight(pt_key, np_array)
-
-        # Convert to MLX array
-        mlx_weights[mlx_key] = mx.array(np_array)
-
-    if skipped:
-        print(f"Skipped {len(skipped)} parameters (not mapped)")
-
-    # Save as safetensors
-    print(f"Saving to {output_path}...")
-    mx.save_safetensors(str(output_path), mlx_weights)
-
-    # Save config if provided
-    if config is not None:
-        config_path = output_path.with_name("config.json")
-        with open(config_path, "w") as f:
-            json.dump(config, f, indent=2)
-        print(f"Saved config to {config_path}")
-
-    print(f"Conversion complete! {len(mlx_weights)} parameters saved.")
-    return mlx_weights
-
-
-def _map_encodec_key(pt_key: str) -> str | None:
-    """Map PyTorch EnCodec key to MLX key."""
-    # Skip BatchNorm running stats
-    skip_patterns = [
-        r"num_batches_tracked",
-        r"running_mean",
-        r"running_var",
-    ]
-    for pattern in skip_patterns:
-        if re.search(pattern, pt_key):
-            return None
-
-    # Map encoder/decoder structure
-    key_mappings = [
-        # Encoder mappings
-        (r"^encoder\.", "encoder."),
-        # Decoder mappings
-        (r"^decoder\.", "decoder."),
-        # Quantizer mappings
-        (r"^quantizer\.vq\.", "quantizer.layers."),
-        (r"^quantizer\.codebook\.", "quantizer.layers."),
-    ]
-
-    mlx_key = pt_key
-    for pattern, replacement in key_mappings:
-        mlx_key = re.sub(pattern, replacement, mlx_key)
-
-    return mlx_key
-
-
-def _transform_encodec_weight(key: str, np_array: np.ndarray) -> np.ndarray:
-    """Transform weight array for MLX format."""
-    shape = np_array.shape
-
-    # Conv1d: PyTorch [out, in, K] -> MLX [out, K, in]
-    if len(shape) == 3 and key.endswith('.weight'):
-        if 'conv' in key.lower():
-            np_array = np.transpose(np_array, (0, 2, 1))
-
-    # ConvTranspose1d: PyTorch [in, out, K] -> MLX [out, K, in]
-    if len(shape) == 3 and 'transpose' in key.lower():
-        np_array = np.transpose(np_array, (1, 2, 0))
-
-    return np_array
+    return _converter.convert(pytorch_path, output_path, config)
 
 
 def download_and_convert(
@@ -157,7 +112,8 @@ def download_and_convert(
     try:
         from huggingface_hub import snapshot_download
     except ImportError:
-        raise ImportError(
+        from mlx_audio.exceptions import WeightConversionError
+        raise WeightConversionError(
             "huggingface_hub is required for downloading. "
             "Install with: pip install huggingface-hub"
         )
@@ -169,8 +125,10 @@ def download_and_convert(
     }
 
     if model_name not in model_repos:
-        raise ValueError(
-            f"Unknown model: {model_name}. Available: {list(model_repos.keys())}"
+        from mlx_audio.exceptions import ConfigurationError
+        available = list(model_repos.keys())
+        raise ConfigurationError(
+            f"Unknown model: {model_name}. Available: {available}"
         )
 
     if output_dir is None:

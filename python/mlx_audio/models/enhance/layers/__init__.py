@@ -1,7 +1,7 @@
 """DeepFilterNet layers."""
 
 from .erb import erb_filterbank, erb_to_hz, hz_to_erb
-from .grouped import GroupedGRU, GroupedLinear
+from .grouped import GroupedGRU, GroupedLinear, StackedGRU
 
 __all__ = [
     "erb_filterbank",
@@ -9,4 +9,5 @@ __all__ = [
     "erb_to_hz",
     "GroupedGRU",
     "GroupedLinear",
+    "StackedGRU",
 ]

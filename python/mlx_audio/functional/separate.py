@@ -68,31 +68,24 @@ def separate(
     from mlx_audio.models.demucs import HTDemucs, BagOfModels, apply_model
     from mlx_audio.hub.cache import get_cache
     from mlx_audio.types.results import SeparationResult, AudioData
-    from mlx_audio.types.audio import load_audio
-    import mlx.core as mx
+    from mlx_audio.functional._audio import load_audio_input
 
-    # Load audio if path provided
-    if isinstance(audio, (str, Path)):
-        audio_array, sr = load_audio(audio)
-        if sample_rate is None:
-            sample_rate = sr
-    else:
-        import numpy as np
-
-        if isinstance(audio, np.ndarray):
-            audio_array = mx.array(audio)
-        else:
-            audio_array = audio
-        if sample_rate is None:
-            sample_rate = 44100  # Default
+    # Load audio using shared utility (44100 Hz default for HTDemucs)
+    audio_array, sample_rate = load_audio_input(
+        audio,
+        sample_rate=sample_rate,
+        default_sample_rate=44100,
+    )
 
     # Load model (with caching)
     if ensemble:
+        from mlx_audio.exceptions import ModelNotFoundError
+
         # Load BagOfModels ensemble (4 specialized models)
         cache_dir = Path.home() / ".cache/mlx_audio/models"
         bag_path = cache_dir / f"{model}_bag"
         if not bag_path.exists():
-            raise FileNotFoundError(
+            raise ModelNotFoundError(
                 f"Ensemble model not found at {bag_path}. "
                 "Please ensure the htdemucs_ft_bag models are downloaded."
             )

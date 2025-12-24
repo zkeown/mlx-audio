@@ -509,12 +509,14 @@ final class BanquetParityTests: XCTestCase {
 
     func testChunkedInference() throws {
         // Create a small model for testing
+        // Note: condEmbDim must match passtConfig.embedDim for query embedding dimension
         let config = BanquetConfig(
             nBands: 8,
             embDim: 32,
             rnnDim: 64,
             nSQMModules: 1,
-            mlpDim: 64
+            mlpDim: 64,
+            condEmbDim: 128  // Must match PaSST embedDim
         )
         let passtConfig = PaSSTConfig(
             embedDim: 128,
@@ -527,7 +529,7 @@ final class BanquetParityTests: XCTestCase {
         // Create long audio (3 seconds at 44.1kHz)
         let samples = 44100 * 3
         let mixture = MLXRandom.normal([2, samples]) * 0.1
-        let queryEmbedding = MLXRandom.normal([128]) * 0.1
+        let queryEmbedding = MLXRandom.normal([128]) * 0.1  // Matches condEmbDim
 
         // Run chunked inference with 1 second segments
         let result = try applyBanquetModel(

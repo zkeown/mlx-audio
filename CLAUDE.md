@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-mlx-audio is an audio machine learning toolkit for Apple Silicon using the MLX framework. It provides audio DSP primitives (STFT, mel spectrogram, MFCC), a PyTorch-compatible DataLoader, a Lightning-like training framework, and pre-built models (HTDemucs, CLAP, MusicGen, Whisper, EnCodec).
+mlx-audio is an audio machine learning toolkit for Apple Silicon using the MLX framework. It provides audio DSP primitives (STFT, mel spectrogram, MFCC), a PyTorch-compatible DataLoader, a Lightning-like training framework, and pre-built models (HTDemucs, CLAP, MusicGen, Whisper, EnCodec, Parler-TTS, SileroVAD, DeepFilterNet).
 
 **Requirements:** macOS + Apple Silicon, Python 3.11+, MLX 0.30.0+
 
@@ -14,22 +14,24 @@ mlx-audio is an audio machine learning toolkit for Apple Silicon using the MLX f
 
 ```bash
 # Build Swift package
-cd swift
-swift build
+cd swift && swift build
 
 # Run Swift tests (IMPORTANT: use the test script, not swift test directly)
+# This is needed because MLX-Swift requires Metal shaders bundled properly
 ./swift/test.sh
 
 # Run specific Swift test
 ./swift/test.sh --filter BanquetParityTests
+
+# Run with coverage
+./swift/test.sh --coverage
 ```
 
 ### Python
 
 ```bash
 # Install in development mode (from python/ directory)
-cd python
-pip install -e ".[dev]"
+cd python && pip install -e ".[dev]"
 
 # Run all tests
 pytest tests/
@@ -59,14 +61,24 @@ mypy python/mlx_audio
 
 | Module | Purpose |
 |--------|---------|
-| `primitives/` | Audio DSP operations with optional C++ acceleration |
+| `primitives/` | Audio DSP operations with optional C++/Metal acceleration |
 | `data/` | DataLoader and dataset classes (PyTorch-compatible API) |
 | `train/` | Lightning-like training framework (TrainModule, Trainer) |
-| `models/` | Pre-built models (demucs/, clap/, musicgen/, whisper/, encodec/) |
-| `functional/` | High-level task APIs (separate, transcribe, generate, embed) |
-| `hub/` | Model registry and caching system |
+| `models/` | Pre-built models (demucs/, clap/, musicgen/, whisper/, encodec/, tts/, vad/, enhance/) |
+| `functional/` | High-level task APIs (separate, transcribe, generate, embed, etc.) |
+| `hub/` | Model registry and HuggingFace Hub caching |
 | `streaming/` | Real-time audio I/O (sources, sinks, adapters) |
 | `types/` | Result types (SeparationResult, TranscriptionResult, etc.) |
+
+### Swift Package Structure (swift/Sources/)
+
+| Module | Purpose |
+|--------|---------|
+| `MLXAudio/` | High-level API (mirrors Python API) |
+| `MLXAudioPrimitives/` | DSP operations |
+| `MLXAudioModels/` | Pre-built models (HTDemucs, CLAP, Banquet) |
+| `MLXAudioStreaming/` | Real-time audio with AVFoundation |
+| `MLXAudioTraining/` | On-device training framework |
 
 ### C++ Extensions (python/csrc/)
 
@@ -76,11 +88,17 @@ The Python code gracefully degrades if C++ extensions are unavailable—check `H
 
 ### Public API
 
-Four high-level functions in `mlx_audio/__init__.py`:
+Ten high-level functions in `mlx_audio/__init__.py`:
 - `separate(audio, model="htdemucs_ft")` → SeparationResult
 - `transcribe(audio, model="whisper-large-v3-turbo")` → TranscriptionResult
 - `generate(prompt, model="musicgen-medium")` → GenerationResult
-- `embed(audio=None, text=None, model="clap-htsat-fused")` → EmbeddingResult
+- `embed(audio=None, text=None, model="clap-htsat-fused")` → CLAPEmbeddingResult
+- `detect_speech(audio, model="silero-vad")` → VADResult
+- `enhance(audio, model="deepfilternet2")` → EnhancementResult
+- `speak(text, model="parler-tts-mini")` → SpeechResult
+- `diarize(audio, model="ecapa-tdnn")` → DiarizationResult
+- `classify(audio, labels=[...], model="clap-htsat-fused")` → ClassificationResult
+- `tag(audio, tags=[...], model="clap-htsat-fused")` → TaggingResult
 
 ### Model Loading Pattern
 

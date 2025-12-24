@@ -97,3 +97,18 @@ public enum AudioTask: String, CaseIterable, Codable, Sendable {
 //   let model = EnCodec(config: config)
 //   let codes = model.encode(audio)
 //   let reconstructed = model.decode(codes)
+
+// MARK: - Parler-TTS
+// The full Parler-TTS implementation is in the ParlerTTS/ subdirectory.
+// Use: ParlerTTS, ParlerTTSConfig, etc.
+// See ParlerTTS/ParlerTTS.swift for the main model class.
+//
+// Quick usage:
+//   let config = ParlerTTSConfig.mini()
+//   let model = ParlerTTS(config: config)
+//   let codes = try model.generate(
+//       promptHiddenStates: promptEmbeds,
+//       descriptionHiddenStates: descEmbeds,
+//       duration: 5.0
+//   )
+//   let audio = try model.decodeAudio(codes)

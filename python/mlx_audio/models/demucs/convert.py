@@ -13,6 +13,83 @@ from typing import Any
 import mlx.core as mx
 import numpy as np
 
+from mlx_audio.models.base.weight_converter import WeightConverter
+
+
+class HTDemucsConverter(WeightConverter):
+    """Converter for HTDemucs PyTorch weights to MLX format.
+
+    Handles:
+    - Skipping BatchNorm running statistics (not used in eval)
+    - Transposing conv kernels from PyTorch to MLX format
+    - Transposing attention in_proj weights
+
+    Example:
+        >>> converter = HTDemucsConverter()
+        >>> converter.convert("htdemucs_ft.th", "htdemucs_ft/model.safetensors")
+    """
+
+    model_name = "htdemucs"
+
+    # Patterns for parameters to skip
+    SKIP_PATTERNS = [
+        r"num_batches_tracked",
+        r"running_mean",
+        r"running_var",
+    ]
+
+    def map_key(self, pt_key: str) -> str | None:
+        """Map PyTorch key to MLX key.
+
+        Since our MLX model matches PyTorch structure exactly,
+        we only skip BatchNorm running stats (not used in eval).
+        """
+        for pattern in self.SKIP_PATTERNS:
+            if re.search(pattern, pt_key):
+                return None
+        return pt_key
+
+    def transform_weight(self, key: str, np_array: np.ndarray) -> np.ndarray:
+        """Transform weight array for MLX format.
+
+        Handles:
+        - Linear layers: PyTorch [out, in] -> MLX [in, out] (for in_proj)
+        - Conv2d: PyTorch [out, in, H, W] -> MLX [out, H, W, in]
+        - ConvTranspose2d: PyTorch [in, out, H, W] -> MLX [out, H, W, in]
+        - Conv1d: PyTorch [out, in, K] -> MLX [out, K, in]
+        - ConvTranspose1d: PyTorch [in, out, K] -> MLX [out, K, in]
+        """
+        shape = np_array.shape
+
+        # 2D weights: attention in_proj_weight only
+        if len(shape) == 2:
+            if re.search(r"\.in_proj_weight$", key):
+                return np_array.T
+
+        # 4D weights: Conv2d and ConvTranspose2d
+        if len(shape) == 4 and key.endswith('.weight'):
+            if 'conv_tr.weight' in key:
+                # ConvTranspose2d: [in, out, H, W] -> [out, H, W, in]
+                return np.transpose(np_array, (1, 2, 3, 0))
+            else:
+                # Conv2d: [out, in, H, W] -> [out, H, W, in]
+                return np.transpose(np_array, (0, 2, 3, 1))
+
+        # 3D weights: Conv1d and ConvTranspose1d
+        if len(shape) == 3 and key.endswith('.weight'):
+            if 'conv_tr.weight' in key:
+                # ConvTranspose1d: [in, out, K] -> [out, K, in]
+                return np.transpose(np_array, (1, 2, 0))
+            else:
+                # Conv1d: [out, in, K] -> [out, K, in]
+                return np.transpose(np_array, (0, 2, 1))
+
+        return np_array
+
+
+# Create module-level converter instance
+_converter = HTDemucsConverter()
+
 
 def convert_htdemucs_weights(
     pytorch_path: str | Path,
@@ -35,140 +112,7 @@ def convert_htdemucs_weights(
         ...     "htdemucs_ft/model.safetensors"
         ... )
     """
-    try:
-        import torch
-    except ImportError:
-        raise ImportError(
-            "PyTorch is required for weight conversion. "
-            "Install with: pip install torch"
-        )
-
-    pytorch_path = Path(pytorch_path)
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load PyTorch checkpoint
-    print(f"Loading PyTorch checkpoint from {pytorch_path}...")
-    checkpoint = torch.load(pytorch_path, map_location="cpu", weights_only=False)
-
-    # Handle nested checkpoint formats
-    if isinstance(checkpoint, dict):
-        if "state_dict" in checkpoint:
-            state_dict = checkpoint["state_dict"]
-        elif "model" in checkpoint:
-            state_dict = checkpoint["model"]
-        elif "state" in checkpoint:
-            state_dict = checkpoint["state"]
-        else:
-            # Assume it's already a state dict
-            state_dict = checkpoint
-    else:
-        state_dict = checkpoint.state_dict()
-
-    # Convert weights
-    print(f"Converting {len(state_dict)} parameters...")
-    mlx_weights = {}
-    skipped = []
-
-    for pt_key, pt_tensor in state_dict.items():
-        # Map PyTorch key to MLX key
-        mlx_key = _map_key(pt_key)
-
-        if mlx_key is None:
-            skipped.append(pt_key)
-            continue
-
-        # Convert to numpy and transform for MLX format
-        np_array = pt_tensor.detach().cpu().numpy()
-        np_array = _transform_weight(pt_key, np_array)
-
-        # Convert to MLX array
-        mlx_weights[mlx_key] = mx.array(np_array)
-
-    if skipped:
-        print(f"Skipped {len(skipped)} parameters (not mapped)")
-
-    # Save as safetensors
-    print(f"Saving to {output_path}...")
-    mx.save_safetensors(str(output_path), mlx_weights)
-
-    # Save config if provided
-    if config is not None:
-        config_path = output_path.with_name("config.json")
-        with open(config_path, "w") as f:
-            json.dump(config, f, indent=2)
-        print(f"Saved config to {config_path}")
-
-    print(f"Conversion complete! {len(mlx_weights)} parameters saved.")
-    return mlx_weights
-
-
-def _map_key(pt_key: str) -> str | None:
-    """Map PyTorch key to MLX key.
-
-    Since our MLX model now matches PyTorch structure exactly,
-    we only need to skip BatchNorm running stats (not used in eval).
-    """
-    # Skip BatchNorm running stats (not needed for inference)
-    skip_patterns = [
-        r"num_batches_tracked",
-        r"running_mean",
-        r"running_var",
-    ]
-    for pattern in skip_patterns:
-        if re.search(pattern, pt_key):
-            return None
-
-    # No renaming needed - model structure matches PyTorch
-    return pt_key
-
-
-def _transform_weight(key: str, np_array: np.ndarray) -> np.ndarray:
-    """Transform weight array for MLX format.
-
-    Handles:
-    - Linear layers: PyTorch [out, in] -> MLX [in, out] (transpose)
-    - Conv2d: PyTorch [out, in, H, W] -> MLX [out, H, W, in]
-    - ConvTranspose2d: PyTorch [in, out, H, W] -> MLX [out, H, W, in]
-    - Conv1d: PyTorch [out, in, K] -> MLX [out, K, in]
-    - ConvTranspose1d: PyTorch [in, out, K] -> MLX [out, K, in]
-    """
-    shape = np_array.shape
-
-    # 2D weights: attention in_proj_weight only
-    # Note: Linear weights are [out, in] in both PyTorch and MLX - no transpose
-    # But in_proj_weight needs transpose for our implementation
-    if len(shape) == 2:
-        if re.search(r"\.in_proj_weight$", key):
-            # in_proj_weight: PyTorch [3*D, D] -> MLX [D, 3*D]
-            return np_array.T
-
-    # 4D weights: Conv2d and ConvTranspose2d
-    if len(shape) == 4:
-        # Check if it's a conv weight (ends with .weight and has 4 dims)
-        if key.endswith('.weight'):
-            # Check for ConvTranspose2d (conv_tr in decoder)
-            if 'conv_tr.weight' in key:
-                # ConvTranspose2d: PyTorch [in, out, H, W] -> MLX [out, H, W, in]
-                np_array = np.transpose(np_array, (1, 2, 3, 0))
-            else:
-                # Conv2d: PyTorch [out, in, H, W] -> MLX [out, H, W, in]
-                np_array = np.transpose(np_array, (0, 2, 3, 1))
-        return np_array
-
-    # 3D weights: Conv1d and ConvTranspose1d
-    if len(shape) == 3:
-        if key.endswith('.weight'):
-            # Check for ConvTranspose1d (conv_tr in time decoder)
-            if 'conv_tr.weight' in key:
-                # ConvTranspose1d: PyTorch [in, out, K] -> MLX [out, K, in]
-                np_array = np.transpose(np_array, (1, 2, 0))
-            else:
-                # Conv1d: PyTorch [out, in, K] -> MLX [out, K, in]
-                np_array = np.transpose(np_array, (0, 2, 1))
-        return np_array
-
-    return np_array
+    return _converter.convert(pytorch_path, output_path, config)
 
 
 def convert_from_demucs_package(
@@ -189,10 +133,12 @@ def convert_from_demucs_package(
     Returns:
         Path to converted model directory
     """
+    from mlx_audio.exceptions import WeightConversionError, ConfigurationError
+
     try:
         from demucs.pretrained import get_model
     except ImportError:
-        raise ImportError(
+        raise WeightConversionError(
             "demucs package is required for this conversion method. "
             "Install with: pip install demucs"
         )
@@ -211,7 +157,7 @@ def convert_from_demucs_package(
         # Get the specific model from the ensemble
         if hasattr(bag, 'models'):
             if model_index >= len(bag.models):
-                raise ValueError(
+                raise ConfigurationError(
                     f"model_index {model_index} out of range. "
                     f"Ensemble has {len(bag.models)} models."
                 )
@@ -220,6 +166,8 @@ def convert_from_demucs_package(
         else:
             model = bag
 
+        # Use converter for the actual conversion logic
+        converter = HTDemucsConverter()
         state_dict = model.state_dict()
 
         print(f"Converting {len(state_dict)} parameters...")
@@ -227,13 +175,13 @@ def convert_from_demucs_package(
         skipped = []
 
         for pt_key, pt_tensor in state_dict.items():
-            mlx_key = _map_key(pt_key)
+            mlx_key = converter.map_key(pt_key)
             if mlx_key is None:
                 skipped.append(pt_key)
                 continue
 
             np_array = pt_tensor.detach().cpu().numpy()
-            np_array = _transform_weight(pt_key, np_array)
+            np_array = converter.transform_weight(pt_key, np_array)
 
             mlx_weights[mlx_key] = mx.array(np_array)
 
@@ -277,11 +225,12 @@ def _download_file(url: str, dest: Path, chunk_size: int = 8192) -> None:
     """Download a file with proper headers and progress reporting."""
     import urllib.request
 
-    # Use headers that mimic a browser request
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
     }
 
     request = urllib.request.Request(url, headers=headers)
@@ -303,7 +252,7 @@ def _download_file(url: str, dest: Path, chunk_size: int = 8192) -> None:
                 if total_size:
                     pct = (downloaded / total_size) * 100
                     print(f"\rProgress: {pct:.1f}%", end="", flush=True)
-            print()  # newline after progress
+            print()
 
 
 def download_and_convert(
@@ -319,17 +268,26 @@ def download_and_convert(
     Returns:
         Path to converted model directory
     """
-    # Model URLs from Facebook's Demucs release
     model_urls = {
-        "htdemucs": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/htdemucs-955717e8.th",
-        "htdemucs_ft": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/htdemucs_ft-f0ac756c.th",
-        "htdemucs_6s": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/htdemucs_6s-cad6e3a7.th",
+        "htdemucs": (
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/"
+            "htdemucs-955717e8.th"
+        ),
+        "htdemucs_ft": (
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/"
+            "htdemucs_ft-f0ac756c.th"
+        ),
+        "htdemucs_6s": (
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/"
+            "htdemucs_6s-cad6e3a7.th"
+        ),
     }
 
     if model_name not in model_urls:
-        raise ValueError(
-            f"Unknown model: {model_name}. "
-            f"Available: {list(model_urls.keys())}"
+        from mlx_audio.exceptions import ConfigurationError
+        available = list(model_urls.keys())
+        raise ConfigurationError(
+            f"Unknown model: {model_name}. Available: {available}"
         )
 
     if output_dir is None:
@@ -346,35 +304,23 @@ def download_and_convert(
     # Convert to MLX
     mlx_path = output_dir / "model.safetensors"
     if not mlx_path.exists():
-        # Determine config based on model name
+        sources = ["drums", "bass", "other", "vocals"]
         if model_name == "htdemucs_6s":
-            config = {
-                "sources": ["drums", "bass", "other", "vocals", "guitar", "piano"],
-                "audio_channels": 2,
-                "samplerate": 44100,
-                "segment": 6.0,
-                "channels": 48,
-                "growth": 2.0,
-                "depth": 4,
-                "nfft": 4096,
-                "hop_length": 1024,
-                "t_depth": 5,
-                "t_heads": 8,
-            }
-        else:
-            config = {
-                "sources": ["drums", "bass", "other", "vocals"],
-                "audio_channels": 2,
-                "samplerate": 44100,
-                "segment": 6.0,
-                "channels": 48,
-                "growth": 2.0,
-                "depth": 4,
-                "nfft": 4096,
-                "hop_length": 1024,
-                "t_depth": 5,
-                "t_heads": 8,
-            }
+            sources = ["drums", "bass", "other", "vocals", "guitar", "piano"]
+
+        config = {
+            "sources": sources,
+            "audio_channels": 2,
+            "samplerate": 44100,
+            "segment": 6.0,
+            "channels": 48,
+            "growth": 2.0,
+            "depth": 4,
+            "nfft": 4096,
+            "hop_length": 1024,
+            "t_depth": 5,
+            "t_heads": 8,
+        }
 
         convert_htdemucs_weights(pytorch_path, mlx_path, config=config)
 
@@ -397,10 +343,12 @@ def convert_bag_from_demucs_package(
     Returns:
         Path to converted bag directory
     """
+    from mlx_audio.exceptions import WeightConversionError, ConfigurationError
+
     try:
         from demucs.pretrained import get_model
     except ImportError:
-        raise ImportError(
+        raise WeightConversionError(
             "demucs package is required for this conversion method. "
             "Install with: pip install demucs"
         )
@@ -414,16 +362,16 @@ def convert_bag_from_demucs_package(
     bag = get_model(model_name)
 
     if not hasattr(bag, 'models'):
-        raise ValueError(f"{model_name} is not a BagOfModels ensemble")
+        raise ConfigurationError(f"{model_name} is not a BagOfModels ensemble")
 
     num_models = len(bag.models)
     print(f"Found {num_models} models in ensemble")
 
-    # Get weight matrix from PyTorch bag
     weights = bag.weights
     print(f"Weight matrix: {weights}")
 
-    # Convert each model
+    converter = HTDemucsConverter()
+
     for i in range(num_models):
         model_dir = output_dir / f"model_{i}"
         mlx_path = model_dir / "model.safetensors"
@@ -441,22 +389,20 @@ def convert_bag_from_demucs_package(
         skipped = []
 
         for pt_key, pt_tensor in state_dict.items():
-            mlx_key = _map_key(pt_key)
+            mlx_key = converter.map_key(pt_key)
             if mlx_key is None:
                 skipped.append(pt_key)
                 continue
 
             np_array = pt_tensor.detach().cpu().numpy()
-            np_array = _transform_weight(pt_key, np_array)
+            np_array = converter.transform_weight(pt_key, np_array)
             mlx_weights[mlx_key] = mx.array(np_array)
 
         if skipped:
             print(f"  Skipped {len(skipped)} parameters (not mapped)")
 
-        # Save weights
         mx.save_safetensors(str(mlx_path), mlx_weights)
 
-        # Save config
         sources = ["drums", "bass", "other", "vocals"]
         if model_name == "htdemucs_6s":
             sources = ["drums", "bass", "other", "vocals", "guitar", "piano"]
@@ -481,7 +427,6 @@ def convert_bag_from_demucs_package(
 
         print(f"  Saved model {i} to {model_dir}")
 
-    # Save weight matrix
     weights_path = output_dir / "weights.npy"
     np.save(weights_path, np.array(weights))
     print(f"Saved weight matrix to {weights_path}")
@@ -521,14 +466,11 @@ def main():
 
     if args.model:
         if args.bag:
-            # Convert full bag of models
             output_dir = convert_bag_from_demucs_package(args.model)
         else:
-            # Download and convert single model
             output_dir = download_and_convert(args.model)
         print(f"\nModel saved to: {output_dir}")
     elif args.input:
-        # Convert local checkpoint
         if args.output is None:
             output = Path(args.input).with_suffix(".safetensors")
         else:

@@ -81,6 +81,12 @@ class ModelCache:
         if local_path.exists():
             return local_path
 
+        # Check if it's a short model name in our local cache
+        if "/" not in repo_id:
+            cached_path = self.cache_dir / "models" / repo_id
+            if cached_path.exists():
+                return cached_path
+
         # Check for short model names (htdemucs_ft, etc.)
         if "/" not in repo_id:
             # Try to resolve from registry
@@ -149,6 +155,11 @@ class ModelCache:
                 if not force_reload and cache_key in self._loaded_models:
                     self._loaded_models.move_to_end(cache_key)
                     return self._loaded_models[cache_key]
+
+            # Check license and warn if non-commercial
+            from mlx_audio.hub.licenses import check_license_and_warn
+
+            check_license_and_warn(model_id)
 
             # Get model path (download if needed) - concurrent for different models
             model_path = self.get_model_path(model_id, revision=revision)

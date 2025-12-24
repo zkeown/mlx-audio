@@ -1,0 +1,11 @@
+# Default owners for everything
+* @zkeown
+
+# Python code
+/python/ @zkeown
+
+# Swift code
+/swift/ @zkeown
+
+# CI/CD
+/.github/ @zkeown

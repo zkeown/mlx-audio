@@ -1,0 +1,126 @@
+# Benchmark workflow - runs on release and updates documentation
+# Runs on self-hosted Apple Silicon runner for accurate benchmarks
+
+name: Benchmarks
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      update_docs:
+        description: 'Update documentation with results'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  benchmark:
+    runs-on: macos-latest  # Use self-hosted for accurate M-series benchmarks
+    # runs-on: self-hosted  # Uncomment for self-hosted Apple Silicon runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e "./python[dev]"
+
+      - name: Get system info
+        id: sysinfo
+        run: |
+          echo "hardware=$(sysctl -n machdep.cpu.brand_string)" >> $GITHUB_OUTPUT
+          echo "memory=$(sysctl -n hw.memsize | awk '{print $1/1024/1024/1024}')" >> $GITHUB_OUTPUT
+          echo "macos=$(sw_vers -productVersion)" >> $GITHUB_OUTPUT
+          echo "date=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Run primitive benchmarks
+        working-directory: python
+        run: |
+          python -m benchmarks.run_benchmarks --quick --output benchmark_results.json
+
+      - name: Generate benchmark report
+        id: report
+        working-directory: python
+        run: |
+          python << 'EOF'
+          import json
+          from datetime import datetime
+
+          with open('benchmark_results.json') as f:
+              results = json.load(f)
+
+          # Generate markdown table
+          report = []
+          report.append("## Benchmark Results")
+          report.append("")
+          report.append(f"**Date:** {datetime.now().strftime('%Y-%m-%d')}")
+          report.append(f"**mlx-audio version:** ${{ github.ref_name }}")
+          report.append("")
+
+          if results.get('primitives'):
+              report.append("### Primitives")
+              report.append("")
+              report.append("| Operation | Duration | Mean Time | Std Dev |")
+              report.append("|-----------|----------|-----------|---------|")
+              for r in results['primitives'][:10]:
+                  name = r['name']
+                  params = r.get('params', {})
+                  duration = params.get('duration_sec', 'N/A')
+                  mean = r['mean_time_ms']
+                  std = r['std_time_ms']
+                  report.append(f"| {name} | {duration}s | {mean:.2f}ms | {std:.2f}ms |")
+
+          if results.get('streaming'):
+              report.append("")
+              report.append("### Streaming")
+              report.append("")
+              report.append("| Operation | Buffer Size | Mean Time | Std Dev |")
+              report.append("|-----------|-------------|-----------|---------|")
+              for r in results['streaming'][:10]:
+                  name = r['name']
+                  params = r.get('params', {})
+                  buffer = params.get('buffer_size', 'N/A')
+                  mean = r['mean_time_ms']
+                  std = r['std_time_ms']
+                  report.append(f"| {name} | {buffer} | {mean:.2f}ms | {std:.2f}ms |")
+
+          with open('benchmark_report.md', 'w') as f:
+              f.write('\n'.join(report))
+
+          print("Benchmark report generated")
+          EOF
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            python/benchmark_results.json
+            python/benchmark_report.md
+          retention-days: 90
+
+      - name: Update documentation (optional)
+        if: ${{ github.event.inputs.update_docs == 'true' || github.event_name == 'release' }}
+        run: |
+          echo "Documentation update would happen here"
+          echo "In production, this would:"
+          echo "1. Update python/docs/performance/benchmarks.md with new results"
+          echo "2. Commit and push to docs branch"
+          echo "3. Trigger ReadTheDocs rebuild"
+
+      - name: Post benchmark summary
+        run: |
+          echo "## Benchmark Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Hardware:** ${{ steps.sysinfo.outputs.hardware }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Memory:** ${{ steps.sysinfo.outputs.memory }} GB" >> $GITHUB_STEP_SUMMARY
+          echo "**macOS:** ${{ steps.sysinfo.outputs.macos }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat python/benchmark_report.md >> $GITHUB_STEP_SUMMARY

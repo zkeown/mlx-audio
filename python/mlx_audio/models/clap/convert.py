@@ -32,7 +32,8 @@ def convert_clap_weights(
     try:
         from transformers import ClapModel, ClapConfig as HFClapConfig
     except ImportError:
-        raise ImportError(
+        from mlx_audio.exceptions import WeightConversionError
+        raise WeightConversionError(
             "transformers is required for CLAP conversion. "
             "Install with: pip install transformers"
         )

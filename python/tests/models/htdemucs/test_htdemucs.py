@@ -2,6 +2,10 @@
 
 These tests validate that the MLX implementation matches PyTorch exactly.
 Requires: demucs package installed (pip install demucs)
+
+Performance note: PyTorch and MLX both use Metal GPU, and interleaving their
+calls causes significant slowdown due to context switching. To avoid this,
+we pre-compute all PyTorch reference outputs once at module load time.
 """
 
 import numpy as np
@@ -17,20 +21,6 @@ except ImportError:
 
 
 @pytest.fixture(scope="module")
-def pt_model():
-    """Load PyTorch HTDemucs model."""
-    if not HAS_DEMUCS:
-        pytest.skip("demucs package not available")
-    import torch  # noqa: F401
-    from demucs.pretrained import get_model
-
-    bag = get_model("htdemucs_ft")
-    model = bag.models[0]
-    model.eval()
-    return model
-
-
-@pytest.fixture(scope="module")
 def mlx_model():
     """Load MLX HTDemucs model."""
     from mlx_audio.models.demucs import HTDemucs
@@ -41,27 +31,114 @@ def mlx_model():
     return model
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def random_audio():
-    """Generate random audio for testing."""
+    """Generate random audio for testing (5 seconds at 44.1kHz, stereo)."""
     np.random.seed(42)
-    # 5 seconds at 44.1kHz, stereo
     return np.random.randn(1, 2, 220500).astype(np.float32) * 0.1
+
+
+@pytest.fixture(scope="module")
+def pt_reference_outputs(random_audio):
+    """Pre-compute all PyTorch reference outputs at once.
+
+    This avoids interleaving PyTorch and MLX calls which causes significant
+    slowdown due to Metal GPU context switching. All PyTorch inference runs
+    in a single batch, then MLX tests compare against cached results.
+
+    Returns dict with:
+        - 'model': PyTorch model (for component tests that need it)
+        - 'stft': STFT output for random_audio
+        - 'magnitude': Magnitude output
+        - 'freq_emb': Frequency embedding
+        - 'output_5s': Full model output for 5s audio
+        - 'output_1s', 'output_3s', 'output_7s': Variable length outputs
+        - 'musdb_output': Output for MUSDB track (if available)
+        - 'musdb_mixture': The MUSDB mixture audio
+        - 'musdb_stems': Ground truth stems from MUSDB
+    """
+    if not HAS_DEMUCS:
+        pytest.skip("demucs package not available")
+
+    import torch
+    from demucs.pretrained import get_model
+    from pathlib import Path
+
+    # Load model
+    bag = get_model("htdemucs_ft")
+    model = bag.models[0]
+    model.eval()
+
+    results = {"model": model}
+
+    with torch.no_grad():
+        # Component outputs for random_audio (5s)
+        pt_audio = torch.from_numpy(random_audio)
+        results["stft"] = model._spec(pt_audio).numpy()
+        results["magnitude"] = model._magnitude(
+            torch.from_numpy(results["stft"].copy())
+        ).numpy()
+
+        # Frequency embedding
+        n_freqs = 512
+        results["freq_emb"] = model.freq_emb(torch.arange(n_freqs)).numpy()
+
+        # Full model output for 5s
+        results["output_5s"] = model(pt_audio).numpy()
+
+        # Variable length outputs (1s, 3s, 5s, 7s)
+        for duration in [1, 3, 5, 7]:
+            np.random.seed(42)
+            samples = duration * 44100
+            audio = np.random.randn(1, 2, samples).astype(np.float32) * 0.1
+            results[f"output_{duration}s"] = model(
+                torch.from_numpy(audio)
+            ).numpy()
+
+        # Pre-compute MUSDB track output if available
+        track_path = Path(
+            "/Users/zakkeown/datasets/musdb18hq/test/"
+            "Al James - Schoolboy Facination"
+        )
+        if track_path.exists():
+            try:
+                import soundfile as sf
+                mixture, sr = sf.read(track_path / "mixture.wav")
+                samples = 5 * sr
+                mixture = mixture[:samples].T[np.newaxis, :, :].astype(np.float32)
+                results["musdb_mixture"] = mixture
+                results["musdb_output"] = model(
+                    torch.from_numpy(mixture)
+                ).numpy()
+
+                # Load ground truth stems
+                stems = {}
+                for stem_name in ["drums", "bass", "other", "vocals"]:
+                    audio, _ = sf.read(track_path / f"{stem_name}.wav")
+                    stems[stem_name] = audio[:samples].T
+                results["musdb_stems"] = stems
+            except ImportError:
+                pass  # soundfile not available
+
+    return results
+
+
+# Keep pt_model for backward compatibility with component tests
+@pytest.fixture(scope="module")
+def pt_model(pt_reference_outputs):
+    """Get PyTorch model from pre-computed references."""
+    return pt_reference_outputs["model"]
 
 
 class TestHTDemucsComponents:
     """Test individual model components."""
 
-    def test_stft_matches(self, pt_model, mlx_model, random_audio):
+    def test_stft_matches(self, pt_reference_outputs, mlx_model, random_audio):
         """Test STFT output matches PyTorch."""
-        import torch
+        pt_spec = pt_reference_outputs["stft"]
 
-        pt_audio = torch.from_numpy(random_audio)
         mlx_audio = mx.array(random_audio)
         mx.eval(mlx_audio)
-
-        with torch.no_grad():
-            pt_spec = pt_model._spec(pt_audio)
 
         mlx_spec = mlx_model._compute_stft(mlx_audio)
         mx.eval(mlx_spec)
@@ -72,20 +149,15 @@ class TestHTDemucsComponents:
         )
 
         # Compare values (allow small numerical difference)
-        mae = np.mean(np.abs(pt_spec.numpy() - np.array(mlx_spec)))
+        mae = np.mean(np.abs(pt_spec - np.array(mlx_spec)))
         assert mae < 0.001, f"STFT MAE too high: {mae}"
 
-    def test_cac_conversion_matches(self, pt_model, mlx_model, random_audio):
+    def test_cac_conversion_matches(self, pt_reference_outputs, mlx_model, random_audio):
         """Test complex-to-real conversion matches PyTorch."""
-        import torch
+        pt_mag = pt_reference_outputs["magnitude"]
 
-        pt_audio = torch.from_numpy(random_audio)
         mlx_audio = mx.array(random_audio)
         mx.eval(mlx_audio)
-
-        with torch.no_grad():
-            pt_spec = pt_model._spec(pt_audio)
-            pt_mag = pt_model._magnitude(pt_spec)
 
         mlx_spec = mlx_model._compute_stft(mlx_audio)
         mx.eval(mlx_spec)
@@ -98,24 +170,20 @@ class TestHTDemucsComponents:
         mlx_mag = stacked.reshape(B, C * 2, F, T)
         mx.eval(mlx_mag)
 
-        mae = np.mean(np.abs(pt_mag.numpy() - np.array(mlx_mag)))
+        mae = np.mean(np.abs(pt_mag - np.array(mlx_mag)))
         assert mae < 0.001, f"CAC conversion MAE too high: {mae}"
 
-    def test_freq_emb_matches(self, pt_model, mlx_model):
+    def test_freq_emb_matches(self, pt_reference_outputs, mlx_model):
         """Test frequency embedding matches PyTorch."""
-        import torch
+        pt_emb = pt_reference_outputs["freq_emb"]
 
         n_freqs = 512
-        pt_frs = torch.arange(n_freqs)
         mlx_frs = mx.arange(n_freqs)
-
-        with torch.no_grad():
-            pt_emb = pt_model.freq_emb(pt_frs)
 
         mlx_emb = mlx_model.freq_emb(mlx_frs)
         mx.eval(mlx_emb)
 
-        mae = np.mean(np.abs(pt_emb.numpy() - np.array(mlx_emb)))
+        mae = np.mean(np.abs(pt_emb - np.array(mlx_emb)))
         assert mae < 1e-6, f"freq_emb MAE too high: {mae}"
 
     def test_encoder_output_shapes(self, mlx_model, random_audio):
@@ -172,60 +240,54 @@ class TestHTDemucsFullModel:
             f"expected {(B, S, C, T)}"
         )
 
-    def test_output_matches_pytorch(self, pt_model, mlx_model, random_audio):
+    def test_output_matches_pytorch(
+        self, pt_reference_outputs, mlx_model, random_audio
+    ):
         """Test full model output matches PyTorch."""
-        import torch
+        pt_out = pt_reference_outputs["output_5s"]
 
-        pt_audio = torch.from_numpy(random_audio)
         mlx_audio = mx.array(random_audio)
         mx.eval(mlx_audio)
-
-        with torch.no_grad():
-            pt_out = pt_model(pt_audio)
 
         mlx_out = mlx_model(mlx_audio)
         mx.eval(mlx_out)
 
         # Overall MAE
-        mae = np.mean(np.abs(pt_out.numpy() - np.array(mlx_out)))
+        mae = np.mean(np.abs(pt_out - np.array(mlx_out)))
         assert mae < 0.001, f"Full model MAE too high: {mae}"
 
-    def test_per_stem_matches_pytorch(self, pt_model, mlx_model, random_audio):
+    def test_per_stem_matches_pytorch(
+        self, pt_reference_outputs, mlx_model, random_audio
+    ):
         """Test each stem output matches PyTorch."""
-        import torch
+        pt_out = pt_reference_outputs["output_5s"]
 
-        pt_audio = torch.from_numpy(random_audio)
         mlx_audio = mx.array(random_audio)
         mx.eval(mlx_audio)
-
-        with torch.no_grad():
-            pt_out = pt_model(pt_audio)
 
         mlx_out = mlx_model(mlx_audio)
         mx.eval(mlx_out)
 
         stems = ["drums", "bass", "other", "vocals"]
         for i, stem in enumerate(stems):
-            pt_stem = pt_out[:, i].numpy()
+            pt_stem = pt_out[:, i]
             mlx_stem = np.array(mlx_out)[:, i]
             mae = np.mean(np.abs(pt_stem - mlx_stem))
             assert mae < 0.001, f"{stem} MAE too high: {mae}"
 
-    def test_output_range_matches_pytorch(self, pt_model, mlx_model, random_audio):
+    def test_output_range_matches_pytorch(
+        self, pt_reference_outputs, mlx_model, random_audio
+    ):
         """Test output value range matches PyTorch."""
-        import torch
+        pt_out = pt_reference_outputs["output_5s"]
 
-        pt_audio = torch.from_numpy(random_audio)
         mlx_audio = mx.array(random_audio)
         mx.eval(mlx_audio)
-
-        with torch.no_grad():
-            pt_out = pt_model(pt_audio)
 
         mlx_out = mlx_model(mlx_audio)
         mx.eval(mlx_out)
 
-        pt_range = (pt_out.min().item(), pt_out.max().item())
+        pt_range = (pt_out.min(), pt_out.max())
         mlx_range = (float(mlx_out.min()), float(mlx_out.max()))
 
         # Ranges should be very close
@@ -242,21 +304,19 @@ class TestHTDemucsVariableLengths:
 
     @pytest.mark.parametrize("duration_seconds", [1, 3, 5, 7])
     def test_different_lengths(
-        self, pt_model, mlx_model, duration_seconds
+        self, pt_reference_outputs, mlx_model, duration_seconds
     ):
         """Test model handles different input lengths."""
-        import torch
+        # Get pre-computed PyTorch output
+        pt_out = pt_reference_outputs[f"output_{duration_seconds}s"]
 
+        # Generate same audio as used for PT reference
         np.random.seed(42)
         samples = duration_seconds * 44100
         audio = np.random.randn(1, 2, samples).astype(np.float32) * 0.1
 
-        pt_audio = torch.from_numpy(audio)
         mlx_audio = mx.array(audio)
         mx.eval(mlx_audio)
-
-        with torch.no_grad():
-            pt_out = pt_model(pt_audio)
 
         mlx_out = mlx_model(mlx_audio)
         mx.eval(mlx_out)
@@ -268,75 +328,45 @@ class TestHTDemucsVariableLengths:
         )
 
         # Check values match
-        mae = np.mean(np.abs(pt_out.numpy() - np.array(mlx_out)))
+        mae = np.mean(np.abs(pt_out - np.array(mlx_out)))
         assert mae < 0.001, f"MAE too high for {duration_seconds}s: {mae}"
 
 
 class TestHTDemucsRealAudio:
     """Test with real audio from MUSDB18HQ if available."""
 
-    @pytest.fixture
-    def musdb_track(self):
-        """Load a track from MUSDB18HQ if available."""
-        from pathlib import Path
-        import soundfile as sf
-
-        track_path = Path(
-            "/Users/zakkeown/datasets/musdb18hq/test/"
-            "Al James - Schoolboy Facination"
-        )
-
-        if not track_path.exists():
-            pytest.skip("MUSDB18HQ not available")
-
-        mixture, sr = sf.read(track_path / "mixture.wav")
-        # Take first 5 seconds
-        samples = 5 * sr
-        mixture = mixture[:samples].T[np.newaxis, :, :].astype(np.float32)
-
-        # Load ground truth stems
-        stems = {}
-        for stem_name in ["drums", "bass", "other", "vocals"]:
-            audio, _ = sf.read(track_path / f"{stem_name}.wav")
-            stems[stem_name] = audio[:samples].T
-
-        return mixture, stems
-
     def test_real_audio_matches_pytorch(
-        self, pt_model, mlx_model, musdb_track
+        self, pt_reference_outputs, mlx_model
     ):
         """Test real audio separation matches PyTorch."""
-        import torch
+        if "musdb_output" not in pt_reference_outputs:
+            pytest.skip("MUSDB18HQ not available")
 
-        mixture, _ = musdb_track
+        pt_out = pt_reference_outputs["musdb_output"]
+        mixture = pt_reference_outputs["musdb_mixture"]
 
-        pt_audio = torch.from_numpy(mixture)
         mlx_audio = mx.array(mixture)
         mx.eval(mlx_audio)
-
-        with torch.no_grad():
-            pt_out = pt_model(pt_audio)
 
         mlx_out = mlx_model(mlx_audio)
         mx.eval(mlx_out)
 
-        mae = np.mean(np.abs(pt_out.numpy() - np.array(mlx_out)))
+        mae = np.mean(np.abs(pt_out - np.array(mlx_out)))
         assert mae < 0.0001, f"Real audio MAE too high: {mae}"
 
     def test_real_audio_correlation_matches(
-        self, pt_model, mlx_model, musdb_track
+        self, pt_reference_outputs, mlx_model
     ):
         """Test correlation with ground truth matches between PT and MLX."""
-        import torch
+        if "musdb_output" not in pt_reference_outputs:
+            pytest.skip("MUSDB18HQ not available")
 
-        mixture, gt_stems = musdb_track
+        pt_out = pt_reference_outputs["musdb_output"]
+        mixture = pt_reference_outputs["musdb_mixture"]
+        gt_stems = pt_reference_outputs["musdb_stems"]
 
-        pt_audio = torch.from_numpy(mixture)
         mlx_audio = mx.array(mixture)
         mx.eval(mlx_audio)
-
-        with torch.no_grad():
-            pt_out = pt_model(pt_audio)
 
         mlx_out = mlx_model(mlx_audio)
         mx.eval(mlx_out)
@@ -344,7 +374,7 @@ class TestHTDemucsRealAudio:
         stems = ["drums", "bass", "other", "vocals"]
         for i, stem in enumerate(stems):
             gt = gt_stems[stem]
-            pt_stem = pt_out[0, i].numpy()
+            pt_stem = pt_out[0, i]
             mlx_stem = np.array(mlx_out)[0, i]
 
             pt_corr = np.corrcoef(gt.flatten(), pt_stem.flatten())[0, 1]

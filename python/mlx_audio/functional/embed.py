@@ -2,102 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import mlx.core as mx
     import numpy as np
 
-    from mlx_audio.types.results import EmbeddingResult
+from mlx_audio.constants import CLAP_SAMPLE_RATE
+from mlx_audio.functional._audio import load_audio_input, ensure_mono_batch
+from mlx_audio.types.results import CLAPEmbeddingResult
 
-
-@dataclass
-class CLAPEmbeddingResult:
-    """Result from CLAP embedding.
-
-    Extends EmbeddingResult with audio-text similarity support.
-
-    Attributes:
-        audio_embeds: Audio embeddings [B, dim] or None
-        text_embeds: Text embeddings [B, dim] or None
-        similarity: Similarity matrix [B_audio, B_text] if both provided
-        text_labels: Original text labels (for zero-shot)
-        model_name: Name of the model used
-        metadata: Additional metadata
-    """
-
-    audio_embeds: "mx.array | None" = None
-    text_embeds: "mx.array | None" = None
-    similarity: "mx.array | None" = None
-    text_labels: list[str] | None = None
-    model_name: str = ""
-    metadata: dict = field(default_factory=dict)
-
-    @property
-    def vectors(self) -> "mx.array":
-        """Get primary embedding vectors (audio if available, else text)."""
-        if self.audio_embeds is not None:
-            return self.audio_embeds
-        if self.text_embeds is not None:
-            return self.text_embeds
-        raise ValueError("No embeddings available")
-
-    @property
-    def dimension(self) -> int:
-        """Embedding dimension."""
-        return self.vectors.shape[-1]
-
-    def best_match(self, top_k: int = 1) -> list[str] | str:
-        """Get best matching text label(s) for audio.
-
-        Requires both audio and text embeddings with text_labels.
-
-        Args:
-            top_k: Number of top matches to return
-
-        Returns:
-            Best matching label(s)
-        """
-        if self.similarity is None or self.text_labels is None:
-            raise ValueError("Need similarity matrix and text labels for best_match")
-
-        import mlx.core as mx
-
-        # Get top-k indices
-        if self.similarity.ndim == 1:
-            sim = self.similarity
-        else:
-            sim = self.similarity[0]  # First audio sample
-
-        indices = mx.argsort(sim)[::-1][:top_k]
-        indices = [int(i) for i in indices]
-
-        matches = [self.text_labels[i] for i in indices]
-        return matches[0] if top_k == 1 else matches
-
-    def to_numpy(self) -> "np.ndarray":
-        """Convert primary embeddings to NumPy array."""
-        import numpy as np
-        return np.array(self.vectors)
-
-    def cosine_similarity(self, other: "CLAPEmbeddingResult") -> float:
-        """Compute cosine similarity with another embedding."""
-        import mlx.core as mx
-
-        a = self.vectors
-        b = other.vectors
-
-        # Handle batched case
-        if a.ndim > 1:
-            a = a[0]
-        if b.ndim > 1:
-            b = b[0]
-
-        a = a / mx.linalg.norm(a)
-        b = b / mx.linalg.norm(b)
-        return float(mx.sum(a * b))
+# Re-export for backward compatibility
+__all__ = ["embed", "CLAPEmbeddingResult", "_tokenize_text"]
 
 
 def embed(
@@ -156,7 +73,8 @@ def embed(
     from mlx_audio.hub.cache import get_cache
 
     if audio is None and text is None:
-        raise ValueError("At least one of audio or text must be provided")
+        from mlx_audio.exceptions import ConfigurationError
+        raise ConfigurationError("At least one of audio or text must be provided")
 
     # Load model
     cache = get_cache()
@@ -168,19 +86,20 @@ def embed(
 
     # Process audio
     if audio is not None:
-        audio_array, sr = _load_audio(audio, sample_rate)
+        # Load and preprocess audio using shared utility
+        audio_array, sr = load_audio_input(
+            audio,
+            sample_rate=sample_rate,
+            default_sample_rate=CLAP_SAMPLE_RATE,
+        )
 
         # Resample if needed
         if sr != clap.config.audio.sample_rate:
             from mlx_audio.primitives import resample
             audio_array = resample(audio_array, sr, clap.config.audio.sample_rate)
 
-        # Ensure correct shape: [B, T]
-        if audio_array.ndim == 1:
-            audio_array = audio_array[None, :]
-        elif audio_array.ndim == 2 and audio_array.shape[0] == 2:
-            # Stereo to mono
-            audio_array = mx.mean(audio_array, axis=0, keepdims=True)
+        # Ensure mono with batch dimension [B, T]
+        audio_array = ensure_mono_batch(audio_array)
 
         # Encode audio
         audio_embeds = clap.encode_audio(audio_array, normalize=normalize)
@@ -219,44 +138,13 @@ def embed(
     )
 
 
-def _load_audio(
-    audio: str | Path | "np.ndarray" | "mx.array",
-    sample_rate: int | None = None,
-) -> tuple["mx.array", int]:
-    """Load audio from file or array.
-
-    Args:
-        audio: Audio source
-        sample_rate: Sample rate (required for array input)
-
-    Returns:
-        Tuple of (audio_array, sample_rate)
-    """
-    import mlx.core as mx
-    import numpy as np
-
-    if isinstance(audio, (str, Path)):
-        from mlx_audio.types.audio import load_audio
-        audio_array, sr = load_audio(audio)
-        if sample_rate is None:
-            sample_rate = sr
-    else:
-        if isinstance(audio, np.ndarray):
-            audio_array = mx.array(audio)
-        else:
-            audio_array = audio
-        if sample_rate is None:
-            sample_rate = 48000  # CLAP default
-
-    return audio_array, sample_rate
-
-
 def _get_roberta_tokenizer():
     """Get cached RoBERTa tokenizer (lazy-loaded on first call)."""
     try:
         from transformers import RobertaTokenizer
     except ImportError:
-        raise ImportError(
+        from mlx_audio.exceptions import TokenizationError
+        raise TokenizationError(
             "transformers is required for text tokenization. "
             "Install with: pip install transformers"
         )

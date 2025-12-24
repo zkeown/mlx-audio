@@ -321,7 +321,9 @@ class TestParlerTTSWeightConversion:
 
     def test_weight_key_mapping_completeness(self):
         """Test that all major weight groups are mapped."""
-        from mlx_audio.models.tts.convert import _map_parler_key
+        from mlx_audio.models.tts.convert import ParlerTTSConverter
+
+        converter = ParlerTTSConverter()
 
         # Test key mappings for major components
         test_mappings = [
@@ -349,7 +351,7 @@ class TestParlerTTSWeightConversion:
         ]
 
         for pt_key, should_map in test_mappings:
-            mlx_key = _map_parler_key(pt_key)
+            mlx_key = converter.map_key(pt_key)
             if should_map:
                 assert mlx_key is not None, f"Key {pt_key} should be mapped"
             else:
@@ -357,7 +359,9 @@ class TestParlerTTSWeightConversion:
 
     def test_weight_key_mapping_patterns(self):
         """Test specific key mapping transformations."""
-        from mlx_audio.models.tts.convert import _map_parler_key
+        from mlx_audio.models.tts.convert import ParlerTTSConverter
+
+        converter = ParlerTTSConverter()
 
         # Test specific transformations
         test_cases = [
@@ -392,7 +396,7 @@ class TestParlerTTSWeightConversion:
         ]
 
         for pt_key, expected_mlx_key in test_cases:
-            actual_mlx_key = _map_parler_key(pt_key)
+            actual_mlx_key = converter.map_key(pt_key)
             assert actual_mlx_key == expected_mlx_key, (
                 f"Key mapping mismatch: {pt_key} -> {actual_mlx_key}, "
                 f"expected {expected_mlx_key}"
@@ -400,7 +404,9 @@ class TestParlerTTSWeightConversion:
 
     def test_skip_patterns(self):
         """Test that non-essential weights are skipped."""
-        from mlx_audio.models.tts.convert import _map_parler_key
+        from mlx_audio.models.tts.convert import ParlerTTSConverter
+
+        converter = ParlerTTSConverter()
 
         skip_keys = [
             "text_encoder.embeddings.weight",
@@ -412,7 +418,7 @@ class TestParlerTTSWeightConversion:
         ]
 
         for key in skip_keys:
-            result = _map_parler_key(key)
+            result = converter.map_key(key)
             assert result is None, f"Key {key} should be skipped but got {result}"
 
     def test_convert_function_signature(self):

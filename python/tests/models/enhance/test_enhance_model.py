@@ -16,14 +16,14 @@ class TestDeepFilterNet:
         """Small config for faster tests."""
         return DeepFilterNetConfig(
             sample_rate=16000,
-            fft_size=320,
+            fft_size=640,
+            frame_size=320,
             hop_size=160,
-            nb_erb=32,
-            nb_df=64,
-            hidden_dim=64,
-            gru_groups=1,
-            linear_groups=1,
-            lookahead=0,
+            erb_bands=32,
+            df_bins=64,
+            hidden_size=64,
+            num_groups=1,
+            enc_layers=1,
         )
 
     @pytest.fixture
@@ -42,7 +42,7 @@ class TestDeepFilterNet:
 
     def test_model_has_decoder(self, model):
         """Test model has decoder components."""
-        assert hasattr(model, "erb_decoder")
+        assert hasattr(model, "df_decoder")
 
     def test_forward_pass_shape(self, model, config):
         """Test forward pass produces correct output shape."""
@@ -91,16 +91,17 @@ class TestDeepFilterNetLayers:
     """Tests for individual DeepFilterNet layers."""
 
     def test_erb_filterbank(self):
-        """Test ERB filterbank initialization."""
-        from mlx_audio.models.enhance.layers.erb import ERBFilterbank
+        """Test ERB filterbank function."""
+        from mlx_audio.models.enhance.layers.erb import erb_filterbank
 
-        fb = ERBFilterbank(
+        fb = erb_filterbank(
+            n_fft=640,
             sample_rate=16000,
-            fft_size=320,
-            nb_bands=32,
+            n_bands=32,
         )
 
-        assert hasattr(fb, "fb")  # Filterbank matrix
+        # Should produce a filterbank matrix
+        assert fb.shape == (32, 321)  # (n_bands, n_fft//2+1)
 
     def test_grouped_gru(self):
         """Test GroupedGRU layer."""
@@ -109,17 +110,15 @@ class TestDeepFilterNetLayers:
         gru = GroupedGRU(
             input_size=64,
             hidden_size=128,
-            groups=1,
+            num_groups=1,
         )
 
         # Test forward pass
         x = mx.array(np.random.randn(2, 10, 64).astype(np.float32))
-        h0 = mx.zeros((2, 128))
 
-        output, h_n = gru(x, h0)
+        output, h_n = gru(x)
 
         assert output.shape == (2, 10, 128)
-        assert h_n.shape == (2, 128)
 
     def test_grouped_linear(self):
         """Test GroupedLinear layer."""
@@ -128,7 +127,7 @@ class TestDeepFilterNetLayers:
         linear = GroupedLinear(
             input_size=64,
             output_size=128,
-            groups=1,
+            num_groups=1,
         )
 
         x = mx.array(np.random.randn(2, 10, 64).astype(np.float32))

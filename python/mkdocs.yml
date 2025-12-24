@@ -48,14 +48,35 @@ nav:
   - Getting Started:
       - Installation: installation.md
       - Quickstart: quickstart.md
+  - Models:
+      - Overview: models/index.md
+      - HTDemucs (Separation): models/htdemucs.md
+      - Whisper (Transcription): models/whisper.md
+      - CLAP (Embeddings): models/clap.md
+      - MusicGen (Generation): models/musicgen.md
+      - Parler-TTS (Speech): models/parler-tts.md
+      - SileroVAD (VAD): models/silero-vad.md
+      - DeepFilterNet (Enhancement): models/deepfilternet.md
+      - EnCodec (Codec): models/encodec.md
+  - Advanced:
+      - Streaming: advanced/streaming.md
+      - Pipelines: advanced/pipelines.md
+      - Memory Optimization: advanced/memory.md
+      - Custom Models: advanced/custom-models.md
+  - Performance:
+      - Benchmarks: performance/benchmarks.md
+      - Model Comparison: performance/model-comparison.md
   - API Reference:
       - High-Level API: api/functional.md
       - Primitives: api/primitives.md
       - Models: api/models.md
       - Training: api/training.md
+      - Result Types: reference/result-types.md
   - Tutorials:
       - Training Custom Models: tutorials/training-custom-model.md
+  - Troubleshooting: troubleshooting.md
   - Contributing: contributing.md
+  - Changelog: changelog.md
 
 markdown_extensions:
   - pymdownx.highlight:

@@ -10,14 +10,15 @@ import mlx.nn as nn
 if TYPE_CHECKING:
     from mlx_audio.models.tts.config import ParlerTTSConfig
 
-from mlx_audio.models.tts.layers.embeddings import RotaryPositionalEmbedding
-
 
 class MultiHeadAttention(nn.Module):
-    """Multi-head attention with RoPE and optional KV caching.
+    """Multi-head attention with optional KV caching.
 
     Supports both self-attention and cross-attention modes.
     Uses Grouped Query Attention (GQA) when num_key_value_heads < num_attention_heads.
+
+    Note: Position embeddings are applied externally (sinusoidal embeddings added
+    to inputs before the decoder), matching the PyTorch Parler-TTS architecture.
     """
 
     def __init__(
@@ -26,8 +27,6 @@ class MultiHeadAttention(nn.Module):
         num_heads: int,
         num_kv_heads: int | None = None,
         dropout: float = 0.0,
-        rope_theta: float = 10000.0,
-        max_position_embeddings: int = 4096,
     ):
         """Initialize multi-head attention.
 
@@ -36,8 +35,6 @@ class MultiHeadAttention(nn.Module):
             num_heads: Number of attention heads
             num_kv_heads: Number of key-value heads (for GQA). If None, uses num_heads.
             dropout: Attention dropout probability
-            rope_theta: Base for RoPE frequencies
-            max_position_embeddings: Maximum sequence length for RoPE
         """
         super().__init__()
         self.hidden_size = hidden_size
@@ -55,13 +52,6 @@ class MultiHeadAttention(nn.Module):
         self.k_proj = nn.Linear(hidden_size, self.num_kv_heads * self.head_dim, bias=False)
         self.v_proj = nn.Linear(hidden_size, self.num_kv_heads * self.head_dim, bias=False)
         self.out_proj = nn.Linear(num_heads * self.head_dim, hidden_size, bias=False)
-
-        # Rotary embeddings
-        self.rotary_emb = RotaryPositionalEmbedding(
-            self.head_dim,
-            max_length=max_position_embeddings,
-            base=rope_theta,
-        )
 
     def __call__(
         self,
@@ -120,10 +110,7 @@ class MultiHeadAttention(nn.Module):
             value = value.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
             value = value.transpose(0, 2, 1, 3)
 
-            # Apply RoPE
-            query, key = self.rotary_emb(query, key, offset=position_offset)
-
-            # Handle KV cache
+            # Handle KV cache (no RoPE - sinusoidal embeddings applied externally)
             if kv_cache is not None:
                 key_cache, value_cache = kv_cache
                 key = mx.concatenate([key_cache, key], axis=2)

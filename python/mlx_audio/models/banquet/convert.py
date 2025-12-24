@@ -13,6 +13,163 @@ from typing import Any
 import mlx.core as mx
 import numpy as np
 
+from mlx_audio.models.base.weight_converter import WeightConverter
+
+
+class BanquetConverter(WeightConverter):
+    """Converter for Banquet PyTorch weights to MLX format.
+
+    Handles:
+    - Skipping optimizer/scheduler/loss states
+    - Key mapping for band_split, tf_model, film, mask_estim modules
+    - Transposing linear and conv layers
+
+    Example:
+        >>> converter = BanquetConverter()
+        >>> converter.convert("ev-pre-aug.ckpt", "banquet/model.safetensors")
+    """
+
+    model_name = "banquet"
+
+    SKIP_PATTERNS = [
+        r"^optimizer\.",
+        r"^scheduler\.",
+        r"^loss\.",
+        r"^ema\.",
+        r"num_batches_tracked",
+        r"running_mean",
+        r"running_var",
+    ]
+
+    KEY_MAPPINGS = [
+        # Band split
+        (r"^band_split\.norm_fc\.(\d+)\.", r"band_split.norm_fc_modules.\1."),
+        # TF model (seqband)
+        (r"^tf_model\.seqband\.(\d+)\.rnn_forward\.",
+         r"tf_model.seqband.\1.rnn."),
+        (r"^tf_model\.seqband\.(\d+)\.rnn_backward\.",
+         r"tf_model.seqband.\1.rnn_reverse."),
+        # FiLM
+        (r"^conditioner\.film\.", r"film."),
+        (r"^film\.gn\.", r"film.group_norm."),
+        # Mask estimation
+        (r"^mask_estim\.band_mlps\.(\d+)\.", r"mask_estim.norm_mlp.\1."),
+        (r"^mask_estim\.norm_mlp\.(\d+)\.hidden\.",
+         r"mask_estim.norm_mlp.\1.hidden_linear."),
+        (r"^mask_estim\.norm_mlp\.(\d+)\.output\.",
+         r"mask_estim.norm_mlp.\1.output_linear."),
+    ]
+
+    def map_key(self, pt_key: str) -> str | None:
+        """Map PyTorch Banquet key to MLX key."""
+        for pattern in self.SKIP_PATTERNS:
+            if re.search(pattern, pt_key):
+                return None
+
+        mlx_key = pt_key
+        for pattern, replacement in self.KEY_MAPPINGS:
+            mlx_key = re.sub(pattern, replacement, mlx_key)
+
+        return mlx_key
+
+    def transform_weight(self, key: str, np_array: np.ndarray) -> np.ndarray:
+        """Transform Banquet weight array for MLX format."""
+        shape = np_array.shape
+
+        # Linear layer weights (2D)
+        if len(shape) == 2 and key.endswith(".weight"):
+            # Don't transpose LSTM weights
+            if "rnn" in key.lower() or "lstm" in key.lower():
+                return np_array
+            return np_array.T
+
+        # LSTM weights: keep as is
+        if "rnn" in key.lower() or "lstm" in key.lower():
+            if "weight_ih" in key or "weight_hh" in key:
+                return np_array
+
+        # Conv2d weights (4D)
+        if len(shape) == 4 and key.endswith(".weight"):
+            return np.transpose(np_array, (0, 2, 3, 1))
+
+        return np_array
+
+
+class PaSSTConverter(WeightConverter):
+    """Converter for PaSST PyTorch weights to MLX format.
+
+    PaSST is the audio encoder used by Banquet for conditioning.
+
+    Handles:
+    - Key mapping for patch_embed, blocks, position embeddings
+    - Transposing linear and conv layers
+    - Skipping classification head (encoder only)
+
+    Example:
+        >>> converter = PaSSTConverter()
+        >>> converter.convert("passt.pt", "passt/model.safetensors")
+    """
+
+    model_name = "passt"
+
+    SKIP_PATTERNS = [
+        r"^head\.",
+        r"^head_dist\.",
+        r"^pre_logits\.",
+        r"num_batches_tracked",
+    ]
+
+    KEY_MAPPINGS = [
+        # Patch embedding
+        (r"^net\.patch_embed\.proj\.", r"patch_embed.proj."),
+        (r"^patch_embed\.proj\.", r"patch_embed.proj."),
+        # Position embeddings
+        (r"^net\.time_new_pos_embed$", r"time_pos_embed"),
+        (r"^net\.freq_new_pos_embed$", r"freq_pos_embed"),
+        (r"^net\.new_pos_embed$", r"pos_embed"),
+        (r"^time_new_pos_embed$", r"time_pos_embed"),
+        (r"^freq_new_pos_embed$", r"freq_pos_embed"),
+        (r"^new_pos_embed$", r"pos_embed"),
+        # Special tokens
+        (r"^net\.cls_token$", r"cls_token"),
+        (r"^net\.dist_token$", r"dist_token"),
+        # Transformer blocks
+        (r"^net\.blocks\.(\d+)\.", r"blocks.\1."),
+        # Final norm
+        (r"^net\.norm\.", r"norm."),
+    ]
+
+    def map_key(self, pt_key: str) -> str | None:
+        """Map PyTorch PaSST key to MLX key."""
+        for pattern in self.SKIP_PATTERNS:
+            if re.search(pattern, pt_key):
+                return None
+
+        mlx_key = pt_key
+        for pattern, replacement in self.KEY_MAPPINGS:
+            mlx_key = re.sub(pattern, replacement, mlx_key)
+
+        return mlx_key
+
+    def transform_weight(self, key: str, np_array: np.ndarray) -> np.ndarray:
+        """Transform PaSST weight array for MLX format."""
+        shape = np_array.shape
+
+        # Linear layer weights (2D) - need transpose
+        if len(shape) == 2 and key.endswith(".weight"):
+            return np_array.T
+
+        # Conv2d weights (4D) - patch embedding
+        if len(shape) == 4 and key.endswith(".weight"):
+            return np.transpose(np_array, (0, 2, 3, 1))
+
+        return np_array
+
+
+# Module-level converter instances
+_banquet_converter = BanquetConverter()
+_passt_converter = PaSSTConverter()
+
 
 def convert_banquet_weights(
     pytorch_path: str | Path,
@@ -35,75 +192,7 @@ def convert_banquet_weights(
         ...     "banquet/model.safetensors"
         ... )
     """
-    try:
-        import torch
-    except ImportError:
-        raise ImportError(
-            "PyTorch is required for weight conversion. "
-            "Install with: pip install torch"
-        )
-
-    pytorch_path = Path(pytorch_path)
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load PyTorch checkpoint
-    print(f"Loading PyTorch checkpoint from {pytorch_path}...")
-    checkpoint = torch.load(pytorch_path, map_location="cpu", weights_only=False)
-
-    # Handle nested checkpoint formats
-    if isinstance(checkpoint, dict):
-        if "state_dict" in checkpoint:
-            state_dict = checkpoint["state_dict"]
-        elif "model" in checkpoint:
-            state_dict = checkpoint["model"]
-        elif "state" in checkpoint:
-            state_dict = checkpoint["state"]
-        else:
-            state_dict = checkpoint
-    else:
-        state_dict = checkpoint.state_dict()
-
-    # Convert weights
-    print(f"Converting {len(state_dict)} parameters...")
-    mlx_weights = {}
-    skipped = []
-
-    for pt_key, pt_tensor in state_dict.items():
-        # Map PyTorch key to MLX key
-        mlx_key = _map_banquet_key(pt_key)
-
-        if mlx_key is None:
-            skipped.append(pt_key)
-            continue
-
-        # Convert to numpy and transform for MLX format
-        np_array = pt_tensor.detach().cpu().numpy()
-        np_array = _transform_banquet_weight(pt_key, np_array)
-
-        # Convert to MLX array
-        mlx_weights[mlx_key] = mx.array(np_array)
-
-    if skipped:
-        print(f"Skipped {len(skipped)} parameters:")
-        for key in skipped[:10]:
-            print(f"  - {key}")
-        if len(skipped) > 10:
-            print(f"  ... and {len(skipped) - 10} more")
-
-    # Save as safetensors
-    print(f"Saving to {output_path}...")
-    mx.save_safetensors(str(output_path), mlx_weights)
-
-    # Save config if provided
-    if config is not None:
-        config_path = output_path.with_name("config.json")
-        with open(config_path, "w") as f:
-            json.dump(config, f, indent=2)
-        print(f"Saved config to {config_path}")
-
-    print(f"Conversion complete! {len(mlx_weights)} parameters saved.")
-    return mlx_weights
+    return _banquet_converter.convert(pytorch_path, output_path, config)
 
 
 def convert_passt_weights(
@@ -121,212 +210,7 @@ def convert_passt_weights(
     Returns:
         Dictionary of MLX arrays
     """
-    try:
-        import torch
-    except ImportError:
-        raise ImportError(
-            "PyTorch is required for weight conversion. "
-            "Install with: pip install torch"
-        )
-
-    pytorch_path = Path(pytorch_path)
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load PyTorch checkpoint
-    print(f"Loading PyTorch checkpoint from {pytorch_path}...")
-    checkpoint = torch.load(pytorch_path, map_location="cpu", weights_only=False)
-
-    # Handle nested checkpoint formats
-    if isinstance(checkpoint, dict):
-        if "state_dict" in checkpoint:
-            state_dict = checkpoint["state_dict"]
-        elif "model" in checkpoint:
-            state_dict = checkpoint["model"]
-        else:
-            state_dict = checkpoint
-    else:
-        state_dict = checkpoint.state_dict()
-
-    # Convert weights
-    print(f"Converting {len(state_dict)} parameters...")
-    mlx_weights = {}
-    skipped = []
-
-    for pt_key, pt_tensor in state_dict.items():
-        # Map PyTorch key to MLX key
-        mlx_key = _map_passt_key(pt_key)
-
-        if mlx_key is None:
-            skipped.append(pt_key)
-            continue
-
-        # Convert to numpy and transform for MLX format
-        np_array = pt_tensor.detach().cpu().numpy()
-        np_array = _transform_passt_weight(pt_key, np_array)
-
-        # Convert to MLX array
-        mlx_weights[mlx_key] = mx.array(np_array)
-
-    if skipped:
-        print(f"Skipped {len(skipped)} parameters")
-
-    # Save as safetensors
-    print(f"Saving to {output_path}...")
-    mx.save_safetensors(str(output_path), mlx_weights)
-
-    # Save config if provided
-    if config is not None:
-        config_path = output_path.with_name("passt_config.json")
-        with open(config_path, "w") as f:
-            json.dump(config, f, indent=2)
-        print(f"Saved config to {config_path}")
-
-    print(f"Conversion complete! {len(mlx_weights)} parameters saved.")
-    return mlx_weights
-
-
-def _map_banquet_key(pt_key: str) -> str | None:
-    """Map PyTorch Banquet key to MLX key.
-
-    Banquet model structure:
-        - band_split.norm_fc_modules.{i}.norm/fc
-        - tf_model.seqband.{i}.norm/rnn/fc
-        - film.gamma.{i}/beta.{i}
-        - mask_estim.norm_mlp.{i}.norm/hidden_linear/output_linear
-    """
-    # Skip optimizer states, loss function, etc.
-    skip_patterns = [
-        r"^optimizer\.",
-        r"^scheduler\.",
-        r"^loss\.",
-        r"^ema\.",
-        r"num_batches_tracked",
-        r"running_mean",
-        r"running_var",
-    ]
-    for pattern in skip_patterns:
-        if re.search(pattern, pt_key):
-            return None
-
-    # Map key prefixes
-    key_mappings = [
-        # Band split
-        (r"^band_split\.norm_fc\.(\d+)\.", r"band_split.norm_fc_modules.\1."),
-        # TF model (seqband)
-        (r"^tf_model\.seqband\.(\d+)\.rnn_forward\.", r"tf_model.seqband.\1.rnn."),
-        (r"^tf_model\.seqband\.(\d+)\.rnn_backward\.", r"tf_model.seqband.\1.rnn_reverse."),
-        # FiLM
-        (r"^conditioner\.film\.", r"film."),
-        (r"^film\.gn\.", r"film.group_norm."),
-        # Mask estimation
-        (r"^mask_estim\.band_mlps\.(\d+)\.", r"mask_estim.norm_mlp.\1."),
-        (r"^mask_estim\.norm_mlp\.(\d+)\.hidden\.", r"mask_estim.norm_mlp.\1.hidden_linear."),
-        (r"^mask_estim\.norm_mlp\.(\d+)\.output\.", r"mask_estim.norm_mlp.\1.output_linear."),
-    ]
-
-    mlx_key = pt_key
-    for pattern, replacement in key_mappings:
-        mlx_key = re.sub(pattern, replacement, mlx_key)
-
-    return mlx_key
-
-
-def _transform_banquet_weight(key: str, np_array: np.ndarray) -> np.ndarray:
-    """Transform Banquet weight array for MLX format.
-
-    Handles:
-    - Linear layers: PyTorch [out, in] -> MLX [in, out] (transpose)
-    - Conv2d: PyTorch [out, in, H, W] -> MLX [out, H, W, in]
-    - LSTM weights need special handling
-    """
-    shape = np_array.shape
-
-    # Linear layer weights (2D)
-    if len(shape) == 2 and key.endswith(".weight"):
-        # Check if it's part of an LSTM (don't transpose)
-        if "rnn" in key.lower() or "lstm" in key.lower():
-            return np_array
-        # Regular linear: transpose
-        return np_array.T
-
-    # LSTM weights: may need transposition depending on MLX convention
-    if "rnn" in key.lower() or "lstm" in key.lower():
-        if "weight_ih" in key or "weight_hh" in key:
-            # LSTM weights: [4*hidden, input/hidden] -> keep as is for MLX
-            return np_array
-
-    # Conv2d weights (4D)
-    if len(shape) == 4 and key.endswith(".weight"):
-        # PyTorch [out, in, H, W] -> MLX [out, H, W, in]
-        return np.transpose(np_array, (0, 2, 3, 1))
-
-    return np_array
-
-
-def _map_passt_key(pt_key: str) -> str | None:
-    """Map PyTorch PaSST key to MLX key.
-
-    PaSST model structure:
-        - patch_embed.proj (Conv2d)
-        - cls_token, dist_token
-        - time_pos_embed, freq_pos_embed, pos_embed
-        - blocks.{i}.norm1/attn/norm2/mlp
-        - norm (final layer norm)
-    """
-    # Skip classification head (we only need encoder)
-    skip_patterns = [
-        r"^head\.",
-        r"^head_dist\.",
-        r"^pre_logits\.",
-        r"num_batches_tracked",
-    ]
-    for pattern in skip_patterns:
-        if re.search(pattern, pt_key):
-            return None
-
-    # Map hear21passt specific key patterns
-    key_mappings = [
-        # Patch embedding
-        (r"^net\.patch_embed\.proj\.", r"patch_embed.proj."),
-        (r"^patch_embed\.proj\.", r"patch_embed.proj."),
-        # Position embeddings
-        (r"^net\.time_new_pos_embed$", r"time_pos_embed"),
-        (r"^net\.freq_new_pos_embed$", r"freq_pos_embed"),
-        (r"^net\.new_pos_embed$", r"pos_embed"),
-        (r"^time_new_pos_embed$", r"time_pos_embed"),
-        (r"^freq_new_pos_embed$", r"freq_pos_embed"),
-        (r"^new_pos_embed$", r"pos_embed"),
-        # Special tokens
-        (r"^net\.cls_token$", r"cls_token"),
-        (r"^net\.dist_token$", r"dist_token"),
-        # Transformer blocks
-        (r"^net\.blocks\.(\d+)\.", r"blocks.\1."),
-        # Final norm
-        (r"^net\.norm\.", r"norm."),
-    ]
-
-    mlx_key = pt_key
-    for pattern, replacement in key_mappings:
-        mlx_key = re.sub(pattern, replacement, mlx_key)
-
-    return mlx_key
-
-
-def _transform_passt_weight(key: str, np_array: np.ndarray) -> np.ndarray:
-    """Transform PaSST weight array for MLX format."""
-    shape = np_array.shape
-
-    # Linear layer weights (2D) - need transpose
-    if len(shape) == 2 and key.endswith(".weight"):
-        return np_array.T
-
-    # Conv2d weights (4D) - patch embedding
-    if len(shape) == 4 and key.endswith(".weight"):
-        # PyTorch [out, in, H, W] -> MLX [out, H, W, in]
-        return np.transpose(np_array, (0, 2, 3, 1))
-
-    return np_array
+    return _passt_converter.convert(pytorch_path, output_path, config)
 
 
 def convert_from_zenodo(
@@ -360,36 +244,31 @@ def convert_from_zenodo(
         print(f"Model already exists at {mlx_path}")
         return output_dir
 
-    # Zenodo download URL for Banquet checkpoints
     zenodo_url = "https://zenodo.org/records/13694558/files/checkpoints.zip"
 
-    print(f"Downloading Banquet checkpoints from Zenodo...")
+    print("Downloading Banquet checkpoints from Zenodo...")
     with tempfile.TemporaryDirectory() as tmpdir:
         zip_path = Path(tmpdir) / "checkpoints.zip"
 
-        # Download
         print("This may take a while (~100MB)...")
         urllib.request.urlretrieve(zenodo_url, zip_path)
 
-        # Extract
         print("Extracting...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(tmpdir)
 
-        # Find the checkpoint
         ckpt_path = Path(tmpdir) / "checkpoints" / f"{checkpoint_name}.ckpt"
         if not ckpt_path.exists():
-            # Try alternative locations
             for p in Path(tmpdir).rglob(f"*{checkpoint_name}*.ckpt"):
                 ckpt_path = p
                 break
 
         if not ckpt_path.exists():
-            raise FileNotFoundError(
+            from mlx_audio.exceptions import WeightConversionError
+            raise WeightConversionError(
                 f"Could not find {checkpoint_name}.ckpt in downloaded archive"
             )
 
-        # Convert
         config = {
             "sample_rate": 44100,
             "n_fft": 2048,
@@ -430,8 +309,10 @@ def convert_passt_from_hear21passt(
     try:
         from hear21passt.base import get_basic_model
     except ImportError:
-        raise ImportError(
-            "hear21passt package is required. Install with: pip install hear21passt"
+        from mlx_audio.exceptions import WeightConversionError
+        raise WeightConversionError(
+            "hear21passt package is required. "
+            "Install with: pip install hear21passt"
         )
 
     if output_dir is None:
@@ -449,31 +330,30 @@ def convert_passt_from_hear21passt(
     model = get_basic_model(mode="embed_only", arch="openmic")
     state_dict = model.net.state_dict()
 
+    converter = PaSSTConverter()
+
     print(f"Converting {len(state_dict)} parameters...")
     mlx_weights = {}
     skipped = []
 
     for pt_key, pt_tensor in state_dict.items():
-        import torch
-        mlx_key = _map_passt_key("net." + pt_key)
+        mlx_key = converter.map_key("net." + pt_key)
 
         if mlx_key is None:
             skipped.append(pt_key)
             continue
 
         np_array = pt_tensor.detach().cpu().numpy()
-        np_array = _transform_passt_weight(pt_key, np_array)
+        np_array = converter.transform_weight(pt_key, np_array)
 
         mlx_weights[mlx_key] = mx.array(np_array)
 
     if skipped:
         print(f"Skipped {len(skipped)} parameters")
 
-    # Save
     print(f"Saving to {mlx_path}...")
     mx.save_safetensors(str(mlx_path), mlx_weights)
 
-    # Save config
     config = {
         "sample_rate": 32000,
         "n_mels": 128,

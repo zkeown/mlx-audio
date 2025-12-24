@@ -11,10 +11,68 @@ import numpy as np
 
 from .config import DeepFilterNetConfig
 from .layers.erb import erb_filterbank, erb_inverse_filterbank
-from .layers.grouped import GroupedGRU, GroupedLinear
 
 if TYPE_CHECKING:
     pass
+
+
+class StackedGRU(nn.Module):
+    """Multi-layer GRU using stacked single-layer GRUs (MLX compatibility).
+
+    MLX's nn.GRU doesn't support num_layers, so we stack individual GRUs.
+
+    Parameters
+    ----------
+    input_size : int
+        Input feature dimension.
+    hidden_size : int
+        Hidden state dimension.
+    num_layers : int, default=1
+        Number of stacked GRU layers.
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int = 1):
+        super().__init__()
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.layers = [
+            nn.GRU(input_size if i == 0 else hidden_size, hidden_size)
+            for i in range(num_layers)
+        ]
+
+    def __call__(
+        self,
+        x: mx.array,
+        hidden: mx.array | None = None,
+    ) -> tuple[mx.array, mx.array]:
+        """Forward pass through stacked GRU layers.
+
+        Parameters
+        ----------
+        x : mx.array
+            Input tensor of shape (batch, seq, input_size).
+        hidden : mx.array, optional
+            Initial hidden state of shape (num_layers, batch, hidden_size).
+
+        Returns
+        -------
+        tuple
+            (output, hidden) where output is (batch, seq, hidden_size)
+            and hidden is (num_layers, batch, hidden_size).
+        """
+        batch = x.shape[0]
+        new_hiddens = []
+        for i, gru in enumerate(self.layers):
+            h = hidden[i] if hidden is not None else None
+            result = gru(x, h)
+            # MLX GRU returns (output, hidden) if hidden provided, else output
+            if isinstance(result, tuple):
+                x, h_new = result
+            else:
+                x = result
+                h_new = mx.zeros((batch, self.hidden_size))
+            new_hiddens.append(h_new)
+        return x, mx.stack(new_hiddens, axis=0)
 
 
 class ErbEncoder(nn.Module):
@@ -25,8 +83,8 @@ class ErbEncoder(nn.Module):
         self.config = config
 
         # Input: ERB features
-        # GRU layers for temporal modeling
-        self.gru = nn.GRU(
+        # GRU layers for temporal modeling (StackedGRU for MLX compat)
+        self.gru = StackedGRU(
             config.erb_bands,
             config.hidden_size,
             num_layers=config.enc_layers,
@@ -72,11 +130,10 @@ class DfDecoder(nn.Module):
         self.df_order = config.df_order
         self.df_bins = config.df_bins
 
-        # GRU for temporal modeling
+        # GRU for temporal modeling (single layer, no num_layers needed)
         self.gru = nn.GRU(
             config.hidden_size + config.df_bins * 2,  # Hidden + complex spec
             config.hidden_size,
-            num_layers=1,
         )
 
         # Predict filter coefficients: df_order * df_bins * 2 (real/imag)
@@ -114,7 +171,13 @@ class DfDecoder(nn.Module):
         combined = mx.concatenate([hidden_state, spec_feat], axis=-1)
 
         # GRU processing
-        out, new_hidden = self.gru(combined, df_hidden)
+        result = self.gru(combined, df_hidden)
+        # Handle MLX GRU return (output only if no hidden, else tuple)
+        if isinstance(result, tuple):
+            out, new_hidden = result
+        else:
+            out = result
+            new_hidden = mx.zeros((batch, self.config.hidden_size))
 
         # Predict coefficients
         coefs = self.fc(out)  # (batch, n_frames, df_order * df_bins * 2)
@@ -362,16 +425,21 @@ class DeepFilterNet(nn.Module):
         # Get encoder hidden for DF decoder
         # Use last hidden state from GRU
         enc_hidden = new_erb_hidden
+        batch_size = spec.shape[0]
+        n_frames = spec.shape[1]
         if enc_hidden.ndim == 3:
-            # (num_layers, batch, hidden) -> (batch, n_frames, hidden)
+            # (num_layers, batch, hidden) -> take last layer -> (batch, hidden)
+            last_hidden = enc_hidden[-1]  # (batch, hidden)
+            # Expand to (batch, n_frames, hidden)
             enc_hidden_expanded = mx.broadcast_to(
-                enc_hidden[-1:].transpose((1, 0, 2)),
-                (spec.shape[0], spec.shape[1], self.config.hidden_size)
+                last_hidden[:, None, :],
+                (batch_size, n_frames, self.config.hidden_size)
             )
         else:
+            # (batch, hidden) -> (batch, n_frames, hidden)
             enc_hidden_expanded = mx.broadcast_to(
-                enc_hidden[None, :],
-                (spec.shape[0], spec.shape[1], self.config.hidden_size)
+                enc_hidden[:, None, :],
+                (batch_size, n_frames, self.config.hidden_size)
             )
 
         # Deep filter prediction and application

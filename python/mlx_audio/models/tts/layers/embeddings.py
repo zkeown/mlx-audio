@@ -12,6 +12,35 @@ if TYPE_CHECKING:
     from mlx_audio.models.tts.config import ParlerTTSConfig
 
 
+def sinusoidal_embeddings(
+    length: int,
+    dim: int,
+    max_timescale: float = 10000.0,
+) -> mx.array:
+    """Compute sinusoidal positional embeddings.
+
+    Based on "Attention Is All You Need" (Vaswani et al., 2017).
+    Uses the same formula as the PyTorch Parler-TTS implementation.
+
+    Args:
+        length: Sequence length
+        dim: Embedding dimension
+        max_timescale: Maximum timescale for frequencies (default: 10000)
+
+    Returns:
+        Positional embeddings of shape [length, dim]
+    """
+    half_dim = dim // 2
+    log_timescale = math.log(max_timescale) / (half_dim - 1)
+    inv_timescales = mx.exp(-log_timescale * mx.arange(half_dim, dtype=mx.float32))
+
+    positions = mx.arange(length, dtype=mx.float32)[:, None]
+    scaled_time = positions * inv_timescales[None, :]
+
+    # Concatenate cos and sin (PyTorch Parler-TTS order)
+    return mx.concatenate([mx.cos(scaled_time), mx.sin(scaled_time)], axis=-1)
+
+
 class RotaryPositionalEmbedding(nn.Module):
     """Rotary Position Embedding (RoPE).
 

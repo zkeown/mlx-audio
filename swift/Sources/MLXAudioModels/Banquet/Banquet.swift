@@ -141,8 +141,8 @@ public class Banquet: Module, @unchecked Sendable {
 
         // Reshape back: [B*C, freq, time] -> [B, C, freq, time]
         let specShape = spec.shape
-        let F = specShape[0]
-        let Tf = specShape[1]
+        let F = specShape[1]
+        let Tf = specShape[2]
         spec = ComplexArray(
             real: spec.real.reshaped([B, C, F, Tf]),
             imag: spec.imag.reshaped([B, C, F, Tf])

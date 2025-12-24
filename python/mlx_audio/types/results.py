@@ -1,15 +1,77 @@
-"""Result types for mlx-audio tasks."""
+"""Result types for mlx-audio tasks.
+
+This module provides structured result types for all mlx-audio operations.
+Each result type includes methods for serialization, export, and analysis.
+"""
 
 from __future__ import annotations
 
+import json
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import mlx.core as mx
 
 from mlx_audio.types.audio import AudioData
+
+
+class Result(ABC):
+    """Abstract base class for all result types.
+
+    Provides a common interface for serialization and export.
+    Subclasses must implement to_dict() and save().
+
+    Example:
+        >>> result = mlx_audio.transcribe("speech.wav")
+        >>> result.to_dict()  # Get as dictionary
+        >>> result.save("output.txt")  # Save to file
+        >>> result.to_json("output.json")  # Save as JSON
+    """
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Convert result to a dictionary.
+
+        Returns:
+            Dictionary representation suitable for JSON serialization.
+        """
+        ...
+
+    @abstractmethod
+    def save(self, path: str | Path, **kwargs: Any) -> Path:
+        """Save result to a file.
+
+        Args:
+            path: Output file path
+            **kwargs: Format-specific options
+
+        Returns:
+            Path to saved file
+        """
+        ...
+
+    def to_json(self, path: str | Path, indent: int = 2) -> Path:
+        """Save result as JSON file.
+
+        Args:
+            path: Output file path
+            indent: JSON indentation level
+
+        Returns:
+            Path to saved file
+        """
+        path = Path(path)
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=indent, default=str)
+        return path
+
+    def __repr__(self) -> str:
+        """Default representation."""
+        class_name = self.__class__.__name__
+        return f"{class_name}(...)"
 
 
 @dataclass
@@ -527,6 +589,95 @@ class ClassificationResult:
 
 
 @dataclass
+class CLAPEmbeddingResult:
+    """Result from CLAP embedding.
+
+    Extends EmbeddingResult with audio-text similarity support.
+
+    Attributes:
+        audio_embeds: Audio embeddings [B, dim] or None
+        text_embeds: Text embeddings [B, dim] or None
+        similarity: Similarity matrix [B_audio, B_text] if both provided
+        text_labels: Original text labels (for zero-shot)
+        model_name: Name of the model used
+        metadata: Additional metadata
+    """
+
+    audio_embeds: "mx.array | None" = None
+    text_embeds: "mx.array | None" = None
+    similarity: "mx.array | None" = None
+    text_labels: list[str] | None = None
+    model_name: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    @property
+    def vectors(self) -> "mx.array":
+        """Get primary embedding vectors (audio if available, else text)."""
+        if self.audio_embeds is not None:
+            return self.audio_embeds
+        if self.text_embeds is not None:
+            return self.text_embeds
+        raise ValueError("No embeddings available")
+
+    @property
+    def dimension(self) -> int:
+        """Embedding dimension."""
+        return self.vectors.shape[-1]
+
+    def best_match(self, top_k: int = 1) -> list[str] | str:
+        """Get best matching text label(s) for audio.
+
+        Requires both audio and text embeddings with text_labels.
+
+        Args:
+            top_k: Number of top matches to return
+
+        Returns:
+            Best matching label(s)
+        """
+        if self.similarity is None or self.text_labels is None:
+            raise ValueError(
+                "Need similarity matrix and text labels for best_match"
+            )
+
+        import mlx.core as mx
+
+        # Get top-k indices
+        if self.similarity.ndim == 1:
+            sim = self.similarity
+        else:
+            sim = self.similarity[0]  # First audio sample
+
+        indices = mx.argsort(sim)[::-1][:top_k]
+        indices = [int(i) for i in indices]
+
+        matches = [self.text_labels[i] for i in indices]
+        return matches[0] if top_k == 1 else matches
+
+    def to_numpy(self) -> "np.ndarray":
+        """Convert primary embeddings to NumPy array."""
+        import numpy as np
+        return np.array(self.vectors)
+
+    def cosine_similarity(self, other: "CLAPEmbeddingResult") -> float:
+        """Compute cosine similarity with another embedding."""
+        import mlx.core as mx
+
+        a = self.vectors
+        b = other.vectors
+
+        # Handle batched case
+        if a.ndim > 1:
+            a = a[0]
+        if b.ndim > 1:
+            b = b[0]
+
+        a = a / mx.linalg.norm(a)
+        b = b / mx.linalg.norm(b)
+        return float(mx.sum(a * b))
+
+
+@dataclass
 class TaggingResult:
     """Result from audio tagging (multi-label classification).
 
@@ -619,3 +770,27 @@ class TaggingResult:
         if len(self.tags) > 5:
             tags_str += f", ... ({len(self.tags)} total)"
         return f"TaggingResult(tags=[{tags_str}])"
+
+
+__all__ = [
+    # Base
+    "Result",
+    # Audio Result Types
+    "AudioData",
+    "SeparationResult",
+    "GenerationResult",
+    "SpeechResult",
+    "EnhancementResult",
+    # Text Result Types
+    "TranscriptionResult",
+    "TranscriptionSegment",
+    # Speaker Result Types
+    "DiarizationResult",
+    "SpeakerSegment",
+    # Embedding Result Types
+    "EmbeddingResult",
+    "CLAPEmbeddingResult",
+    # Classification Result Types
+    "ClassificationResult",
+    "TaggingResult",
+]

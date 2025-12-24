@@ -71,30 +71,16 @@ def detect_speech(
     # Import here to avoid circular imports and allow lazy loading
     from mlx_audio.models.vad import SileroVAD, VADConfig
     from mlx_audio.types.vad import VADResult
-    from mlx_audio.types.audio import load_audio
+    from mlx_audio.functional._audio import load_audio_input
     import mlx.core as mx
 
-    # Load audio if path provided
-    if isinstance(audio, (str, Path)):
-        audio_array, sr = load_audio(audio, mono=True)
-        if sample_rate is None:
-            sample_rate = sr
-    else:
-        import numpy as np
-
-        if isinstance(audio, np.ndarray):
-            audio_array = mx.array(audio)
-        else:
-            audio_array = audio
-        if sample_rate is None:
-            sample_rate = 16000  # VAD default
-
-    # Ensure mono audio
-    if audio_array.ndim == 2:
-        if audio_array.shape[0] <= 2:
-            audio_array = mx.mean(audio_array, axis=0)
-        else:
-            audio_array = mx.mean(audio_array, axis=1)
+    # Load audio using shared utility (16kHz default for VAD, mono)
+    audio_array, sample_rate = load_audio_input(
+        audio,
+        sample_rate=sample_rate,
+        default_sample_rate=16000,
+        mono=True,
+    )
 
     # Create model config based on sample rate
     if sample_rate == 8000:

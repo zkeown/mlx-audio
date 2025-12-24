@@ -1,7 +1,39 @@
 """Pytest configuration and fixtures for mlx-audio tests."""
 
+import sys
 import numpy as np
 import pytest
+
+# Compatibility shim for deepfilternet with newer torchaudio versions
+# torchaudio 2.x removed the backend.common module that deepfilternet expects
+try:
+    import torchaudio
+    if not hasattr(torchaudio, 'backend'):
+        from types import ModuleType
+
+        # Create mock AudioMetaData class
+        class AudioMetaData:
+            def __init__(self, sample_rate=None, num_frames=None, num_channels=None,
+                         bits_per_sample=None, encoding=None):
+                self.sample_rate = sample_rate
+                self.num_frames = num_frames
+                self.num_channels = num_channels
+                self.bits_per_sample = bits_per_sample
+                self.encoding = encoding
+
+        # Create mock modules
+        backend_common = ModuleType('torchaudio.backend.common')
+        backend_common.AudioMetaData = AudioMetaData
+
+        backend = ModuleType('torchaudio.backend')
+        backend.common = backend_common
+
+        # Register in sys.modules and as attribute
+        sys.modules['torchaudio.backend'] = backend
+        sys.modules['torchaudio.backend.common'] = backend_common
+        torchaudio.backend = backend
+except ImportError:
+    pass
 
 try:
     import mlx.core as mx

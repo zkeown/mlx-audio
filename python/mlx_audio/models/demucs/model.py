@@ -515,8 +515,23 @@ class HTDemucs(nn.Module):
         path: str | Path,
         **kwargs: Any,
     ) -> "HTDemucs":
-        """Load pretrained HTDemucs model."""
+        """Load pretrained HTDemucs model.
+
+        Args:
+            path: Model ID (e.g., "htdemucs_ft") or path to model directory.
+            **kwargs: Additional config overrides.
+
+        Returns:
+            Loaded HTDemucs model with pretrained weights.
+        """
         path = Path(path)
+
+        # If path doesn't exist, it might be a model ID - resolve via cache
+        if not path.exists():
+            from mlx_audio.hub.cache import get_cache
+
+            cache = get_cache()
+            path = cache.get_model_path(str(path))
 
         config_path = path / "config.json"
         if config_path.exists():

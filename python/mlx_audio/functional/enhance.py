@@ -11,6 +11,8 @@ import numpy as np
 if TYPE_CHECKING:
     from mlx_audio.types.results import EnhancementResult
 
+from mlx_audio.functional._audio import load_audio_input
+
 
 def enhance(
     audio: str | Path | np.ndarray | mx.array,
@@ -80,19 +82,14 @@ def enhance(
     """
     from mlx_audio.types.results import EnhancementResult
 
-    # Load audio if path provided
-    if isinstance(audio, (str, Path)):
-        audio_array, sr = _load_audio(audio)
-        if sample_rate is None:
-            sample_rate = sr
-    elif isinstance(audio, np.ndarray):
-        audio_array = mx.array(audio.astype(np.float32))
-        if sample_rate is None:
-            sample_rate = 22050  # Default
-    else:
-        audio_array = audio
-        if sample_rate is None:
-            sample_rate = 22050
+    # Load audio using shared utility
+    audio_array, sr = load_audio_input(
+        audio,
+        sample_rate=sample_rate,
+        default_sample_rate=22050,
+        mono=True,  # Enhancement typically works on mono
+    )
+    sample_rate = sr
 
     original_audio = audio_array if keep_original else None
 
@@ -107,7 +104,8 @@ def enhance(
     elif method == "spectral":
         use_neural = False
     else:
-        raise ValueError(f"Unknown method: '{method}'")
+        from mlx_audio.exceptions import ConfigurationError
+        raise ConfigurationError(f"Unknown method: '{method}'")
 
     # Apply enhancement
     if use_neural:
@@ -134,20 +132,6 @@ def enhance(
         result.save(output_file)
 
     return result
-
-
-def _load_audio(path: str | Path) -> tuple[mx.array, int]:
-    """Load audio file."""
-    import soundfile as sf
-
-    path = Path(path)
-    audio, sr = sf.read(str(path), dtype="float32")
-
-    # Convert to mono if stereo
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1)
-
-    return mx.array(audio), sr
 
 
 def _enhance_neural(

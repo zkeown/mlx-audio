@@ -1,7 +1,7 @@
 """Base configuration class for mlx-audio models.
 
-Provides common serialization and factory methods shared by
-all model configuration classes.
+Provides common serialization, factory methods, and validation
+shared by all model configuration classes.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ import json
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, ClassVar, Self
+
+from mlx_audio.exceptions import ConfigurationError
 
 
 class ModelConfig:
@@ -144,5 +146,122 @@ class ModelConfig:
             f"Available: {', '.join(sorted(set(available)))}"
         )
 
+    # =========================================================================
+    # Validation utilities
+    # =========================================================================
 
-__all__ = ["ModelConfig"]
+    def _validate(self) -> None:
+        """Validate configuration values.
+
+        Override in subclasses to add custom validation logic.
+        Called automatically in __post_init__ if config is a dataclass.
+
+        Raises:
+            ConfigurationError: If validation fails
+        """
+        pass
+
+    @staticmethod
+    def _validate_positive(value: int | float, name: str) -> None:
+        """Validate that a value is positive (> 0).
+
+        Args:
+            value: Value to validate
+            name: Name of the parameter (for error messages)
+
+        Raises:
+            ConfigurationError: If value is not positive
+        """
+        if value <= 0:
+            raise ConfigurationError(
+                f"{name} must be positive, got {value}"
+            )
+
+    @staticmethod
+    def _validate_non_negative(value: int | float, name: str) -> None:
+        """Validate that a value is non-negative (>= 0).
+
+        Args:
+            value: Value to validate
+            name: Name of the parameter (for error messages)
+
+        Raises:
+            ConfigurationError: If value is negative
+        """
+        if value < 0:
+            raise ConfigurationError(
+                f"{name} must be non-negative, got {value}"
+            )
+
+    @staticmethod
+    def _validate_range(
+        value: int | float,
+        name: str,
+        min_val: int | float,
+        max_val: int | float,
+        inclusive: bool = True,
+    ) -> None:
+        """Validate that a value is within a range.
+
+        Args:
+            value: Value to validate
+            name: Name of the parameter (for error messages)
+            min_val: Minimum allowed value
+            max_val: Maximum allowed value
+            inclusive: If True, range is [min, max], else (min, max)
+
+        Raises:
+            ConfigurationError: If value is out of range
+        """
+        if inclusive:
+            if not (min_val <= value <= max_val):
+                raise ConfigurationError(
+                    f"{name} must be in [{min_val}, {max_val}], got {value}"
+                )
+        else:
+            if not (min_val < value < max_val):
+                raise ConfigurationError(
+                    f"{name} must be in ({min_val}, {max_val}), got {value}"
+                )
+
+    @staticmethod
+    def _validate_one_of(value: Any, name: str, choices: set | list | tuple) -> None:
+        """Validate that a value is one of the allowed choices.
+
+        Args:
+            value: Value to validate
+            name: Name of the parameter (for error messages)
+            choices: Set/list of allowed values
+
+        Raises:
+            ConfigurationError: If value is not in choices
+        """
+        if value not in choices:
+            raise ConfigurationError(
+                f"{name} must be one of {sorted(choices)}, got {value!r}"
+            )
+
+    @staticmethod
+    def _validate_type(value: Any, name: str, expected_type: type | tuple) -> None:
+        """Validate that a value is of the expected type.
+
+        Args:
+            value: Value to validate
+            name: Name of the parameter (for error messages)
+            expected_type: Expected type or tuple of types
+
+        Raises:
+            ConfigurationError: If value is not of expected type
+        """
+        if not isinstance(value, expected_type):
+            type_names = (
+                expected_type.__name__
+                if isinstance(expected_type, type)
+                else " or ".join(t.__name__ for t in expected_type)
+            )
+            raise ConfigurationError(
+                f"{name} must be {type_names}, got {type(value).__name__}"
+            )
+
+
+__all__ = ["ModelConfig", "ConfigurationError"]

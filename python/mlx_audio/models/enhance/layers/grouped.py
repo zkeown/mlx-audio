@@ -6,6 +6,42 @@ import mlx.core as mx
 import mlx.nn as nn
 
 
+class StackedGRU(nn.Module):
+    """Multi-layer GRU using stacked single-layer GRUs (MLX compatibility).
+
+    MLX's nn.GRU doesn't support num_layers, so we stack individual GRUs.
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int = 1):
+        super().__init__()
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.layers = [
+            nn.GRU(input_size if i == 0 else hidden_size, hidden_size)
+            for i in range(num_layers)
+        ]
+
+    def __call__(
+        self,
+        x: mx.array,
+        hidden: mx.array | None = None,
+    ) -> tuple[mx.array, mx.array]:
+        """Forward pass through stacked GRU layers."""
+        batch = x.shape[0]
+        new_hiddens = []
+        for i, gru in enumerate(self.layers):
+            h = hidden[i] if hidden is not None else None
+            result = gru(x, h)
+            # MLX GRU returns (output, hidden) if hidden provided, else output
+            if isinstance(result, tuple):
+                x, h_new = result
+            else:
+                x = result
+                h_new = mx.zeros((batch, self.hidden_size))
+            new_hiddens.append(h_new)
+        return x, mx.stack(new_hiddens, axis=0)
+
+
 class GroupedLinear(nn.Module):
     """Grouped linear layer.
 
@@ -71,7 +107,6 @@ class GroupedLinear(nn.Module):
         batch = x_flat.shape[0]
 
         group_in = self.input_size // self.num_groups
-        group_out = self.output_size // self.num_groups
 
         # Reshape to groups: (batch, num_groups, group_in)
         x_grouped = x_flat.reshape(batch, self.num_groups, group_in)
@@ -79,9 +114,10 @@ class GroupedLinear(nn.Module):
         # Apply per-group linear using batched matmul (vectorized, no loop)
         # x_grouped: (batch, num_groups, group_in)
         # weight: (num_groups, group_out, group_in)
-        # weight.T: (num_groups, group_in, group_out)
         # Result: (batch, num_groups, group_out)
-        out_grouped = mx.einsum("bgi,gio->bgo", x_grouped, self.weight.swapaxes(-1, -2))
+        out_grouped = mx.einsum(
+            "bgi,gio->bgo", x_grouped, self.weight.swapaxes(-1, -2)
+        )
 
         # Reshape back: (batch, output_size)
         out = out_grouped.reshape(batch, self.output_size)
@@ -130,18 +166,23 @@ class GroupedGRU(nn.Module):
 
         # For simplicity, use standard GRU when num_groups=1
         if num_groups == 1:
-            self.gru = nn.GRU(input_size, hidden_size, num_layers=num_layers)
+            if num_layers == 1:
+                self.gru = nn.GRU(input_size, hidden_size)
+            else:
+                self.gru = StackedGRU(input_size, hidden_size, num_layers)
         else:
             # Create per-group GRUs
             assert hidden_size % num_groups == 0
             group_hidden = hidden_size // num_groups
 
             # Input projection to group size
-            self.input_proj = GroupedLinear(input_size, hidden_size, num_groups)
+            self.input_proj = GroupedLinear(
+                input_size, hidden_size, num_groups
+            )
 
-            # Per-group GRUs
+            # Per-group GRUs (single layer each for simplicity)
             self.grus = [
-                nn.GRU(group_hidden, group_hidden, num_layers=num_layers)
+                nn.GRU(group_hidden, group_hidden)
                 for _ in range(num_groups)
             ]
 
@@ -169,7 +210,13 @@ class GroupedGRU(nn.Module):
             and hidden is the final hidden state.
         """
         if self.num_groups == 1:
-            return self.gru(x, hidden)
+            result = self.gru(x, hidden)
+            # Handle MLX GRU return (output only if no hidden, else tuple)
+            if isinstance(result, tuple):
+                return result
+            else:
+                batch = x.shape[0]
+                return result, mx.zeros((batch, self.hidden_size))
 
         # Grouped processing
         if self.batch_first:
@@ -198,7 +245,13 @@ class GroupedGRU(nn.Module):
             else:
                 h_g = None
 
-            out_g, h_g_new = self.grus[g](x_g, h_g)
+            result = self.grus[g](x_g, h_g)
+            # Handle MLX GRU return
+            if isinstance(result, tuple):
+                out_g, h_g_new = result
+            else:
+                out_g = result
+                h_g_new = mx.zeros((batch, group_hidden))
             outputs.append(out_g)
             new_hiddens.append(h_g_new)
 

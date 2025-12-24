@@ -11,6 +11,8 @@ import numpy as np
 if TYPE_CHECKING:
     from mlx_audio.types.results import DiarizationResult, TranscriptionResult
 
+from mlx_audio.functional._audio import load_audio_input
+
 
 def diarize(
     audio: str | Path | np.ndarray | mx.array,
@@ -72,19 +74,13 @@ def diarize(
     """
     from mlx_audio.types.results import DiarizationResult, SpeakerSegment
 
-    # Load audio if path provided
-    if isinstance(audio, (str, Path)):
-        audio_array, sr = _load_audio(audio)
-        if sample_rate is None:
-            sample_rate = sr
-    elif isinstance(audio, np.ndarray):
-        audio_array = mx.array(audio.astype(np.float32))
-        if sample_rate is None:
-            sample_rate = 16000  # Default for speech
-    else:
-        audio_array = audio
-        if sample_rate is None:
-            sample_rate = 16000
+    # Load audio using shared utility (16kHz default for speech)
+    audio_array, sample_rate = load_audio_input(
+        audio,
+        sample_rate=sample_rate,
+        default_sample_rate=16000,
+        mono=True,
+    )
 
     # Load diarization model
     from mlx_audio.models.diarization import DiarizationConfig, SpeakerDiarization
@@ -142,20 +138,6 @@ def diarize(
         speaker_embeddings=speaker_embeddings,
         model_name=model,
     )
-
-
-def _load_audio(path: str | Path) -> tuple[mx.array, int]:
-    """Load audio file."""
-    import soundfile as sf
-
-    path = Path(path)
-    audio, sr = sf.read(str(path), dtype="float32")
-
-    # Convert to mono if stereo
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1)
-
-    return mx.array(audio), sr
 
 
 def _assign_speakers_to_transcript(

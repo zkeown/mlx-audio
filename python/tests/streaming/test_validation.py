@@ -258,6 +258,7 @@ class TestMusdbValidation:
         assert all(s.shape == mixture.shape for s in stems.values())
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     not HAS_MUSDB or not HAS_SOUNDFILE,
     reason="MUSDB18-HQ or soundfile not available",
@@ -305,6 +306,7 @@ class TestBatchProcessing:
         print(f"  mean: SI-SDR={mean_si_sdr:.2f} dB")
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     not HAS_MUSDB or not HAS_SOUNDFILE,
     reason="MUSDB18-HQ or soundfile not available",
@@ -396,6 +398,7 @@ class TestStreamingVsBatch:
         print(f"  Difference: {diff_si:.2f} dB")
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not HAS_DEMUCS, reason="demucs package not available")
 @pytest.mark.skipif(
     not HAS_MUSDB or not HAS_SOUNDFILE,
@@ -506,6 +509,7 @@ class TestPyTorchParity:
             assert corr > 0.8, f"{stem} corr too low: {corr}"
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     not HAS_MUSDB or not HAS_SOUNDFILE,
     reason="MUSDB18-HQ or soundfile not available",
@@ -575,6 +579,7 @@ def pt_bag_model():
     return get_model("htdemucs_ft")
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not HAS_BAG_MODEL, reason="BagOfModels not converted")
 @pytest.mark.skipif(not HAS_DEMUCS, reason="demucs package not available")
 @pytest.mark.skipif(

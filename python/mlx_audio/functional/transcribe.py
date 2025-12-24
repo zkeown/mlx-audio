@@ -70,31 +70,15 @@ def transcribe(
     # Import here to avoid circular imports and allow lazy loading
     from mlx_audio.models.whisper import Whisper, WhisperTokenizer, apply_model
     from mlx_audio.hub.cache import get_cache
-    from mlx_audio.types.audio import load_audio
-    import mlx.core as mx
+    from mlx_audio.functional._audio import load_audio_input
 
-    # Load audio if path provided
-    if isinstance(audio, (str, Path)):
-        audio_array, sr = load_audio(audio, mono=True)
-        if sample_rate is None:
-            sample_rate = sr
-    else:
-        import numpy as np
-
-        if isinstance(audio, np.ndarray):
-            audio_array = mx.array(audio)
-        else:
-            audio_array = audio
-        if sample_rate is None:
-            sample_rate = 16000  # Whisper default
-
-    # Ensure mono audio
-    if audio_array.ndim == 2:
-        # Take first channel or average
-        if audio_array.shape[0] <= 2:
-            audio_array = mx.mean(audio_array, axis=0)
-        else:
-            audio_array = mx.mean(audio_array, axis=1)
+    # Load audio using shared utility (16kHz default for Whisper, mono)
+    audio_array, sample_rate = load_audio_input(
+        audio,
+        sample_rate=sample_rate,
+        default_sample_rate=16000,
+        mono=True,
+    )
 
     # Load model (with caching)
     cache = get_cache()

@@ -115,6 +115,15 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
             ]
         ),
+        .testTarget(
+            name: "MLXAudioIntegrationTests",
+            dependencies: [
+                "MLXAudioModels",
+                "MLXAudioPrimitives",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+            ]
+        ),
 
         // Benchmark framework
         .target(

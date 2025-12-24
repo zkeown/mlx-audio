@@ -7,5 +7,28 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+      - "python"
     commit-message:
-      prefix: "deps"
+      prefix: "deps(python)"
+
+  - package-ecosystem: "swift"
+    directory: "/swift"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "swift"
+    commit-message:
+      prefix: "deps(swift)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "deps(actions)"

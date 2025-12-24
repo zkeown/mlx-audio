@@ -90,6 +90,7 @@ class TestSpeakAPI:
 
 
 @pytest.mark.integration
+@pytest.mark.skip(reason="Model mlx-community/parler-tts-mini not yet available on HuggingFace")
 class TestSpeakIntegration:
     """Integration tests for speak() - require model download."""
 

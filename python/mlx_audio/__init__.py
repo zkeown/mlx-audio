@@ -525,6 +525,16 @@ def tag(
 
 
 # =============================================================================
+# LICENSE UTILITIES (Re-exported for convenience)
+# =============================================================================
+
+from mlx_audio.hub.licenses import (
+    is_commercial_safe,
+    list_commercial_safe_models,
+    list_non_commercial_models,
+)
+
+# =============================================================================
 # PRIMITIVES (Re-exported for convenience)
 # =============================================================================
 
@@ -575,6 +585,10 @@ __all__ = [
     "diarize",
     "classify",
     "tag",
+    # License utilities
+    "is_commercial_safe",
+    "list_commercial_safe_models",
+    "list_non_commercial_models",
     # Primitives
     "stft",
     "istft",

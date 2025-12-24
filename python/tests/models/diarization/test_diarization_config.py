@@ -26,21 +26,21 @@ class TestEcapaTDNNConfig:
         # Should have 5 channel dimensions
         assert len(config.channels) == 5
         # First layer takes input, last outputs for pooling
-        assert config.channels[0] == 512
-        assert config.channels[4] == 1536
+        assert config.channels[0] == 1024
+        assert config.channels[4] == 3072
 
     def test_kernel_sizes(self):
         """Test kernel sizes."""
         config = EcapaTDNNConfig()
 
-        assert len(config.kernel_sizes) == 4
+        assert len(config.kernel_sizes) == 5
         assert config.kernel_sizes[0] == 5  # Initial TDNN
 
     def test_dilations(self):
         """Test dilation values."""
         config = EcapaTDNNConfig()
 
-        assert len(config.dilations) == 4
+        assert len(config.dilations) == 5
         # First layer has no dilation
         assert config.dilations[0] == 1
 
@@ -60,7 +60,7 @@ class TestDiarizationConfig:
 
         assert config.sample_rate == 16000
         assert config.min_speakers == 1
-        assert config.max_speakers == 10
+        assert config.max_speakers is None  # Unlimited by default
         assert config.segment_duration == 1.5
         assert config.segment_step == 0.75
 

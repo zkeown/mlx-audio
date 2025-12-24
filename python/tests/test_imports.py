@@ -7,7 +7,7 @@ def test_version():
     """Test version is accessible."""
     from mlx_audio import __version__
 
-    assert __version__ == "0.1.0"
+    assert __version__ == "1.0.0"
 
 
 def test_primitives_imports():
@@ -118,15 +118,19 @@ def test_htdemucs_model_creation():
     assert model.config.channels == 16
 
 
-def test_unimplemented_apis_raise():
-    """Test that unimplemented APIs raise NotImplementedError."""
+def test_apis_raise_appropriate_errors():
+    """Test that APIs raise appropriate errors for invalid inputs."""
     import mlx_audio
+    from mlx_audio.exceptions import AudioLoadError, ConfigurationError
 
-    with pytest.raises(NotImplementedError):
-        mlx_audio.transcribe("test.wav")
+    # transcribe raises AudioLoadError for non-existent file
+    with pytest.raises(AudioLoadError):
+        mlx_audio.transcribe("nonexistent_file.wav")
 
-    with pytest.raises(NotImplementedError):
-        mlx_audio.generate("test prompt")
+    # embed raises ConfigurationError when neither audio nor text provided
+    with pytest.raises(ConfigurationError):
+        mlx_audio.embed()
 
-    with pytest.raises(NotImplementedError):
-        mlx_audio.embed("test.wav")
+    # separate raises AudioLoadError for non-existent file
+    with pytest.raises(AudioLoadError):
+        mlx_audio.separate("nonexistent_file.wav")
