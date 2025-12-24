@@ -73,7 +73,7 @@ jobs:
         with:
           name: documentation
           path: site
-      - uses: actions/configure-pages@v4
+      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
