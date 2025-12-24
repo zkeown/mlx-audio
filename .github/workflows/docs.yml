@@ -22,7 +22,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest  # Must use macOS since mlx-audio requires Apple Silicon
     defaults:
       run:
         working-directory: python

@@ -63,7 +63,8 @@ jobs:
           # Use pytest-xdist for parallel test execution
           # -n auto: use as many processes as CPUs
           # --dist loadscope: group tests by module for better isolation
-          pytest tests -m "not slow" --timeout=300 -n auto --dist loadscope
+          # Use python -m pytest to ensure correct interpreter is used
+          python -m pytest tests -m "not slow" --timeout=300 -n auto --dist loadscope
 
   test-full:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -90,7 +91,8 @@ jobs:
         run: |
           cd python
           # Use pytest-xdist for parallel test execution
-          pytest tests -n auto --dist loadscope --junitxml=test-results.xml
+          # Use python -m pytest to ensure correct interpreter is used
+          python -m pytest tests -n auto --dist loadscope --junitxml=test-results.xml
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
@@ -122,7 +124,8 @@ jobs:
       - name: Run tests with coverage
         run: |
           cd python
-          pytest tests -m "not slow" --cov=mlx_audio --cov-report=xml --cov-report=term
+          # Use python -m pytest to ensure correct interpreter is used
+          python -m pytest tests -m "not slow" --cov=mlx_audio --cov-report=xml --cov-report=term
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:

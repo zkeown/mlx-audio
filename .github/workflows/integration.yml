@@ -90,7 +90,7 @@ jobs:
         if: github.event.inputs.test_scope != 'full'
         run: |
           cd python
-          pytest tests/integration/test_musdb18_separation.py \
+          python -m pytest tests/integration/test_musdb18_separation.py \
             -m "integration and not slow" \
             -v --tb=short \
             2>&1 | tee musdb18-results.txt
@@ -99,7 +99,7 @@ jobs:
         if: github.event.inputs.test_scope == 'full'
         run: |
           cd python
-          pytest tests/integration/test_musdb18_separation.py \
+          python -m pytest tests/integration/test_musdb18_separation.py \
             -m "integration" \
             -v --tb=short \
             2>&1 | tee musdb18-results.txt
@@ -167,7 +167,7 @@ jobs:
         if: github.event.inputs.test_scope != 'full'
         run: |
           cd python
-          pytest tests/integration/test_esc50_classification.py \
+          python -m pytest tests/integration/test_esc50_classification.py \
             -m "integration and not slow" \
             -v --tb=short \
             2>&1 | tee esc50-results.txt
@@ -176,7 +176,7 @@ jobs:
         if: github.event.inputs.test_scope == 'full'
         run: |
           cd python
-          pytest tests/integration/test_esc50_classification.py \
+          python -m pytest tests/integration/test_esc50_classification.py \
             -m "integration" \
             -v --tb=short \
             2>&1 | tee esc50-results.txt

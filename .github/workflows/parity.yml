@@ -53,7 +53,7 @@ jobs:
       - name: Run Python parity tests
         run: |
           cd python
-          pytest tests -m parity -v --tb=short
+          python -m pytest tests -m parity -v --tb=short
 
   # Job 2: Generate fixtures and run Swift parity tests
   swift-parity:
@@ -154,7 +154,7 @@ jobs:
       - name: Run quality benchmarks
         run: |
           cd python
-          pytest tests/benchmarks/ -v --tb=short -x 2>&1 | tee benchmark-output.txt
+          python -m pytest tests/benchmarks/ -v --tb=short -x 2>&1 | tee benchmark-output.txt
         continue-on-error: true
 
       - name: Upload benchmark results
