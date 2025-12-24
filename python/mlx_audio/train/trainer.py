@@ -319,48 +319,98 @@ class Trainer:
         1. Create loss function compatible with nn.value_and_grad
         2. Wrap with gradient clipping if configured
         3. Optionally compile for performance
-        """
 
-        def loss_fn(model: TrainModule, batch: Any) -> mx.array:
-            """Loss function for nn.value_and_grad."""
-            loss, metrics = model.compute_loss(batch)
-            # Store metrics in module for later retrieval
-            model._last_metrics = metrics
+        Note: When compiling, we use mx.compile with explicit state tracking
+        via inputs/outputs parameters. Callbacks are kept outside the compiled
+        function.
+        """
+        from functools import partial
+
+        # Capture optimizer reference for use in core_step
+        optimizer = self._optimizer
+        gradient_clip_val = self.gradient_clip_val
+
+        def loss_only_fn(model: TrainModule, batch: Any) -> mx.array:
+            """Loss function for nn.value_and_grad - returns only loss."""
+            loss, _ = model.compute_loss(batch)
             return loss
 
         # Create value_and_grad function
-        loss_and_grad_fn = nn.value_and_grad(module, loss_fn)
+        loss_and_grad_fn = nn.value_and_grad(module, loss_only_fn)
 
-        def step(batch: Any) -> tuple[mx.array, dict[str, Any]]:
-            """Single training step."""
+        # Gradient clipping helper (pure function)
+        def clip_grads(grads: dict, clip_val: float) -> dict:
+            """Apply gradient clipping - pure function."""
+            from mlx.utils import tree_flatten, tree_unflatten
+
+            flat_grads = tree_flatten(grads)
+            total_norm = mx.sqrt(
+                sum(mx.sum(g**2) for _, g in flat_grads if isinstance(g, mx.array))
+            )
+            scale = clip_val / (total_norm + 1e-6)
+            scale = mx.minimum(scale, 1.0)
+
+            clipped = [
+                (k, g * scale if isinstance(g, mx.array) else g)
+                for k, g in flat_grads
+            ]
+            return tree_unflatten(clipped)
+
+        # Core compute function - pure, no side effects
+        def core_step(batch: Any) -> tuple[mx.array, dict]:
+            """Pure computation: forward + backward + clip + update."""
             # Forward + backward
             loss, grads = loss_and_grad_fn(module, batch)
 
-            # Fire callback for gradient modification (e.g., clipping)
-            grads = self._callbacks.fire(
+            # Apply gradient clipping if configured
+            if gradient_clip_val is not None:
+                grads = clip_grads(grads, gradient_clip_val)
+
+            # Optimizer step
+            optimizer.update(module, grads)
+
+            return loss, grads
+
+        # Optionally compile with state tracking
+        if self.compile:
+            # State includes model params, optimizer state, and random state
+            # (random state needed for dropout, etc.)
+            state = [module.state, optimizer.state, mx.random.state]
+            compiled = partial(mx.compile, inputs=state, outputs=state)
+            core_step = compiled(core_step)
+
+        # Store state for _force_eval
+        if self.compile:
+            self._compile_state = [module.state, optimizer.state]
+        else:
+            self._compile_state = None
+
+        def step(batch: Any) -> tuple[mx.array, dict[str, Any]]:
+            """Full training step with callbacks."""
+            # Pure computation (possibly compiled)
+            loss, grads = core_step(batch)
+
+            # Fire callbacks (outside compiled region)
+            modified_grads = self._callbacks.fire(
                 "on_after_backward",
                 self,
                 module,
                 _chain_value=grads,
             )
-            if grads is None:
-                # No callbacks modified gradients, recompute
-                _, grads = loss_and_grad_fn(module, batch)
 
-            # Apply built-in gradient clipping if configured
-            if self.gradient_clip_val is not None:
-                grads = self._clip_gradients(grads)
+            # If callbacks modified gradients, we need to re-apply update
+            # This is rare and only used by specialized callbacks
+            if modified_grads is not None and modified_grads is not grads:
+                # Redo update with modified grads
+                optimizer.update(module, modified_grads)
 
-            # Optimizer step
             self._callbacks.fire("on_before_optimizer_step", self, module)
-            self._optimizer.update(module, grads)
 
-            return loss, module._last_metrics
+            # Compute metrics (outside compiled region to avoid trace issues)
+            # We do a lightweight forward pass for metrics
+            _, metrics = module.compute_loss(batch)
 
-        # Optionally compile the step function
-        if self.compile:
-            # Note: We compile with state tracking for proper gradient flow
-            step = mx.compile(step)
+            return loss, metrics
 
         return step
 
@@ -535,17 +585,27 @@ class Trainer:
             return batch_idx == epoch_length - 1
         else:
             # Every N steps
-            return self.global_step > 0 and (self.global_step % self.val_check_interval) == 0
+            step = self.global_step
+            interval = self.val_check_interval
+            return step > 0 and (step % interval) == 0
 
     def _force_eval(self, loss: mx.array, metrics: dict[str, mx.array]) -> None:
         """Force evaluation of lazy arrays."""
-        arrays_to_eval = [loss, self._module.parameters(), self._optimizer.state]
-        arrays_to_eval.extend(metrics.values())
-        mx.eval(*arrays_to_eval)
+        if self.compile and self._compile_state is not None:
+            # When compiled, eval the state list
+            mx.eval(self._compile_state)
+        else:
+            # Without compile, eval individual arrays
+            arrays_to_eval = [
+                loss,
+                self._module.parameters(),
+                self._optimizer.state,
+            ]
+            arrays_to_eval.extend(metrics.values())
+            mx.eval(*arrays_to_eval)
 
         if self.debug_lazy_eval:
             self._eval_count += 1
-            # TODO: Add more sophisticated lazy eval debugging
 
     def _create_context(
         self,

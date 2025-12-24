@@ -73,8 +73,16 @@ class WarmupCosineScheduler(LRScheduler):
         # Apply min_lr floor
         lr = mx.maximum(lr, mx.array(self.min_lr))
 
-        self._last_lr = float(lr.item())
+        # Store lr array - don't call .item() here as it breaks compile
+        # _last_lr will be updated lazily when get_last_lr() is called
+        self._last_lr_array = lr
         return lr
+
+    def get_last_lr(self) -> float:
+        """Get last learning rate value (evaluates lazily)."""
+        if hasattr(self, "_last_lr_array"):
+            self._last_lr = float(self._last_lr_array.item())
+        return self._last_lr
 
     def state_dict(self) -> dict[str, Any]:
         return {
@@ -145,10 +153,19 @@ class WarmupLinearScheduler(LRScheduler):
     def __call__(self, step: int) -> mx.array:
         self._step = step
         lr = self._schedule(step)
-        self._last_lr = float(lr.item())
+        # Store lr array - don't call .item() here as it breaks compile
+        self._last_lr_array = lr
         return lr
 
+    def get_last_lr(self) -> float:
+        """Get last learning rate value (evaluates lazily)."""
+        if hasattr(self, "_last_lr_array"):
+            self._last_lr = float(self._last_lr_array.item())
+        return self._last_lr
+
     def state_dict(self) -> dict[str, Any]:
+        # Ensure _last_lr is up to date before saving
+        self.get_last_lr()
         return {
             "step": self._step,
             "last_lr": self._last_lr,
