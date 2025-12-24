@@ -14,6 +14,7 @@ target_sources(
     ${CMAKE_CURRENT_LIST_DIR}/primitives/dct.cpp
     ${CMAKE_CURRENT_LIST_DIR}/primitives/spectral.cpp
     ${CMAKE_CURRENT_LIST_DIR}/primitives/spectral_contrast.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/primitives/pyin.cpp
 )
 
 target_include_directories(
@@ -45,6 +46,7 @@ if(MLX_BUILD_METAL)
             ${CMAKE_CURRENT_LIST_DIR}/metal/windows.metal
             ${CMAKE_CURRENT_LIST_DIR}/metal/mel_filterbank.metal
             ${CMAKE_CURRENT_LIST_DIR}/metal/spectral_contrast.metal
+            ${CMAKE_CURRENT_LIST_DIR}/metal/pyin.metal
         INCLUDE_DIRS
             ${PROJECT_SOURCE_DIR}
             ${MLX_INCLUDE_DIRS}

@@ -12,6 +12,7 @@
 #include "primitives/dct.h"
 #include "primitives/spectral.h"
 #include "primitives/spectral_contrast.h"
+#include "primitives/pyin.h"
 
 namespace mlx_audio {
 
@@ -215,6 +216,33 @@ inline mlx::core::array spectral_contrast_wrapper(
         return spectral_contrast(S, frequencies, fmin, n_bands, quantile, linear, stream.value());
     }
     return spectral_contrast(S, frequencies, fmin, n_bands, quantile, linear);
+}
+
+// PYIN candidate detection wrapper
+inline std::tuple<mlx::core::array, mlx::core::array, mlx::core::array>
+pyin_candidates_wrapper(
+    const mlx::core::array& cmndf,
+    const mlx::core::array& thresholds,
+    int min_period,
+    int sr,
+    std::optional<mlx::core::Stream> stream) {
+    if (stream.has_value()) {
+        return pyin_candidates(cmndf, thresholds, min_period, sr, stream.value());
+    }
+    return pyin_candidates(cmndf, thresholds, min_period, sr);
+}
+
+// PYIN weighted median wrapper
+inline std::pair<mlx::core::array, mlx::core::array>
+pyin_weighted_median_wrapper(
+    const mlx::core::array& candidates,
+    const mlx::core::array& weights,
+    const mlx::core::array& n_candidates,
+    std::optional<mlx::core::Stream> stream) {
+    if (stream.has_value()) {
+        return pyin_weighted_median(candidates, weights, n_candidates, stream.value());
+    }
+    return pyin_weighted_median(candidates, weights, n_candidates);
 }
 
 }  // namespace mlx_audio

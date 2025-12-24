@@ -27,7 +27,6 @@ class DrumTranscriberConfig:
 
     # Encoder
     encoder_type: str = "standard"  # "standard" or "lightweight"
-    base_channels: int = 32
     embed_dim: int = 512
 
     # Transformer
@@ -67,7 +66,6 @@ class ConvBlock(nn.Module):
         kernel_size: int | tuple[int, int] = 3,
         stride: int | tuple[int, int] = 1,
         padding: int | tuple[int, int] | None = None,
-        groups: int = 1,
         use_bn: bool = True,
     ):
         super().__init__()
@@ -103,104 +101,11 @@ class ConvBlock(nn.Module):
         return nn.silu(x)
 
 
-class SqueezeExcitation(nn.Module):
-    """Squeeze-and-Excitation block for channel attention."""
-
-    def __init__(self, channels: int, reduction: int = 4):
-        super().__init__()
-        reduced = max(1, channels // reduction)
-        self.fc1 = nn.Linear(channels, reduced)
-        self.fc2 = nn.Linear(reduced, channels)
-
-    def __call__(self, x: mx.array) -> mx.array:
-        # x: (B, H, W, C) - NHWC format
-        # Global average pool over H, W
-        scale = mx.mean(x, axis=(1, 2), keepdims=False)  # (B, C)
-        scale = nn.silu(self.fc1(scale))
-        scale = mx.sigmoid(self.fc2(scale))
-        # Reshape for broadcasting: (B, 1, 1, C)
-        scale = mx.expand_dims(mx.expand_dims(scale, axis=1), axis=1)
-        return x * scale
-
-
-class MBConvBlock(nn.Module):
-    """Mobile Inverted Bottleneck block (MBConv).
-    
-    MLX version using NHWC format.
-    """
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        kernel_size: int = 3,
-        stride: int | tuple[int, int] = 1,
-        expand_ratio: int = 4,
-        se_ratio: float = 0.25,
-        drop_rate: float = 0.0,
-    ):
-        super().__init__()
-        
-        if isinstance(stride, int):
-            stride = (stride, stride)
-
-        self.use_residual = stride == (1, 1) and in_channels == out_channels
-        self.drop_rate = drop_rate
-        hidden_dim = in_channels * expand_ratio
-
-        # Expansion phase
-        self.expand = expand_ratio != 1
-        if self.expand:
-            self.expand_conv = ConvBlock(in_channels, hidden_dim, kernel_size=1)
-
-        # Depthwise convolution (groups=hidden_dim not supported in MLX Conv2d)
-        # We'll use a regular conv for now - can optimize later
-        self.dw_conv = ConvBlock(
-            hidden_dim,
-            hidden_dim,
-            kernel_size=kernel_size,
-            stride=stride,
-        )
-
-        # Squeeze-and-excitation
-        self.use_se = se_ratio > 0
-        if self.use_se:
-            self.se = SqueezeExcitation(hidden_dim, int(1 / se_ratio))
-
-        # Projection phase (no activation)
-        self.project_conv = nn.Conv2d(hidden_dim, out_channels, kernel_size=1, bias=False)
-        self.project_bn = nn.BatchNorm(out_channels)
-
-    def __call__(self, x: mx.array) -> mx.array:
-        residual = x
-
-        # Expansion
-        if self.expand:
-            x = self.expand_conv(x)
-
-        # Depthwise
-        x = self.dw_conv(x)
-
-        # SE
-        if self.use_se:
-            x = self.se(x)
-
-        # Projection
-        x = self.project_conv(x)
-        x = self.project_bn(x)
-
-        # Residual
-        if self.use_residual:
-            if self.drop_rate > 0 and self.training:
-                # Stochastic depth
-                x = nn.Dropout(self.drop_rate)(x)
-            x = x + residual
-
-        return x
-
-
 class SpectrogramEncoder(nn.Module):
     """CNN encoder for mel-spectrogram feature extraction.
+
+    Simplified architecture - no depthwise convs, just efficient channel scaling.
+    Designed to hit ~8M params to match PyTorch version's total of ~21M.
 
     Input: (batch, time, freq, 1) mel-spectrogram in NHWC
     Output: (batch, time, embed_dim) feature sequence
@@ -210,7 +115,6 @@ class SpectrogramEncoder(nn.Module):
         self,
         n_mels: int = 128,
         embed_dim: int = 512,
-        base_channels: int = 32,
         drop_rate: float = 0.1,
     ):
         super().__init__()
@@ -218,38 +122,30 @@ class SpectrogramEncoder(nn.Module):
         self.n_mels = n_mels
         self.embed_dim = embed_dim
 
-        # Stage 0: Initial convolution
-        self.stem = ConvBlock(1, base_channels, kernel_size=3, stride=1)
-
-        # Stage 1: stride in freq only
-        self.stage1 = [
-            MBConvBlock(base_channels, base_channels * 2, stride=(1, 2), drop_rate=drop_rate),
-            MBConvBlock(base_channels * 2, base_channels * 2, drop_rate=drop_rate),
-        ]
-
-        # Stage 2
-        self.stage2 = [
-            MBConvBlock(base_channels * 2, base_channels * 4, stride=(1, 2), drop_rate=drop_rate),
-            MBConvBlock(base_channels * 4, base_channels * 4, drop_rate=drop_rate),
-            MBConvBlock(base_channels * 4, base_channels * 4, drop_rate=drop_rate),
-        ]
-
-        # Stage 3
-        self.stage3 = [
-            MBConvBlock(base_channels * 4, base_channels * 8, stride=(1, 2), drop_rate=drop_rate),
-            MBConvBlock(base_channels * 8, base_channels * 8, drop_rate=drop_rate),
-            MBConvBlock(base_channels * 8, base_channels * 8, drop_rate=drop_rate),
-        ]
-
-        # Stage 4
-        self.stage4 = [
-            MBConvBlock(base_channels * 8, base_channels * 16, stride=(1, 2), drop_rate=drop_rate),
-            MBConvBlock(base_channels * 16, base_channels * 16, drop_rate=drop_rate),
-        ]
-
+        # Use smaller channel counts to stay within param budget
+        # (B, T, 128, 1) -> (B, T, 128, 32)
+        self.conv1 = ConvBlock(1, 32, kernel_size=(3, 7), stride=1, padding=(1, 3))
+        
+        # (B, T, 128, 32) -> (B, T, 64, 64)
+        self.conv2 = ConvBlock(32, 64, kernel_size=3, stride=(1, 2))
+        self.conv2b = ConvBlock(64, 64, kernel_size=3, stride=1)
+        
+        # (B, T, 64, 64) -> (B, T, 32, 128)
+        self.conv3 = ConvBlock(64, 128, kernel_size=3, stride=(1, 2))
+        self.conv3b = ConvBlock(128, 128, kernel_size=3, stride=1)
+        
+        # (B, T, 32, 128) -> (B, T, 16, 256)
+        self.conv4 = ConvBlock(128, 256, kernel_size=3, stride=(1, 2))
+        self.conv4b = ConvBlock(256, 256, kernel_size=3, stride=1)
+        
+        # (B, T, 16, 256) -> (B, T, 8, 384)
+        self.conv5 = ConvBlock(256, 384, kernel_size=3, stride=(1, 2))
+        self.conv5b = ConvBlock(384, 384, kernel_size=3, stride=1)
+        
+        self.dropout = nn.Dropout(drop_rate)
+        
         # Project to embed_dim
-        final_channels = base_channels * 16
-        self.proj = nn.Linear(final_channels, embed_dim) if final_channels != embed_dim else None
+        self.proj = nn.Linear(384, embed_dim)
 
     def __call__(self, x: mx.array) -> mx.array:
         """Forward pass.
@@ -260,25 +156,27 @@ class SpectrogramEncoder(nn.Module):
         Returns:
             Feature sequence (batch, time, embed_dim)
         """
-        # CNN stages
-        x = self.stem(x)
+        x = self.conv1(x)
         
-        for block in self.stage1:
-            x = block(x)
-        for block in self.stage2:
-            x = block(x)
-        for block in self.stage3:
-            x = block(x)
-        for block in self.stage4:
-            x = block(x)
+        x = self.conv2(x)
+        x = self.conv2b(x)
+        
+        x = self.conv3(x)
+        x = self.conv3b(x)
+        
+        x = self.conv4(x)
+        x = self.conv4b(x)
+        
+        x = self.conv5(x)
+        x = self.conv5b(x)
+        
+        x = self.dropout(x)
 
-        # x is now (B, T, F', C) where F' = n_mels / 16
-        # Average pool over frequency dimension
-        x = mx.mean(x, axis=2)  # (B, T, C)
+        # Average pool over frequency dimension: (B, T, F', C) -> (B, T, C)
+        x = mx.mean(x, axis=2)
 
         # Project to embed_dim
-        if self.proj is not None:
-            x = self.proj(x)
+        x = self.proj(x)
 
         return x
 
@@ -540,7 +438,6 @@ class DrumTranscriber(nn.Module):
             self.encoder = SpectrogramEncoder(
                 n_mels=self.config.n_mels,
                 embed_dim=self.config.embed_dim,
-                base_channels=self.config.base_channels,
                 drop_rate=self.config.encoder_dropout,
             )
 
@@ -581,7 +478,8 @@ class DrumTranscriber(nn.Module):
     @property
     def num_parameters(self) -> int:
         """Total number of parameters."""
-        return sum(p.size for p in self.parameters().values())
+        from mlx.utils import tree_flatten
+        return sum(p.size for _, p in tree_flatten(self.parameters()))
 
 
 def create_model(preset: str = "standard", **kwargs) -> DrumTranscriber:

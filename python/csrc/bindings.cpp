@@ -1,5 +1,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
+#include <nanobind/stl/pair.h>
+#include <nanobind/stl/tuple.h>
 #include <nanobind/stl/string.h>
 
 #include "mlx/mlx.h"
@@ -523,5 +525,74 @@ NB_MODULE(_ext, m) {
         mlx.core.array
             Spectral contrast for each band and frame.
             Shape: (n_bands + 1, n_frames) or (batch, n_bands + 1, n_frames).
+        )");
+
+    // PYIN pitch detection
+    m.def(
+        "pyin_candidates",
+        &mlx_audio::pyin_candidates_wrapper,
+        "cmndf"_a,
+        "thresholds"_a,
+        "min_period"_a,
+        "sr"_a,
+        "stream"_a = nb::none(),
+        R"(
+        Parallel PYIN threshold candidate detection.
+
+        Evaluates all thresholds in parallel on GPU to find pitch candidates
+        for each frame. This is the computationally intensive part of PYIN.
+
+        Parameters
+        ----------
+        cmndf : mlx.core.array
+            Cumulative mean normalized difference function.
+            Shape: (n_frames, n_lags).
+        thresholds : mlx.core.array
+            Array of threshold values to test. Shape: (n_thresholds,).
+        min_period : int
+            Minimum period (lag offset) for frequency calculation.
+        sr : int
+            Sample rate for converting periods to frequencies.
+        stream : mlx.core.Stream, optional
+            Stream for computation.
+
+        Returns
+        -------
+        tuple
+            (candidates, weights, n_candidates) where:
+            - candidates: Shape (n_frames, n_thresholds) - frequency candidates
+            - weights: Shape (n_frames, n_thresholds) - candidate weights (1 - cmndf)
+            - n_candidates: Shape (n_frames,) - number of valid candidates per frame
+        )");
+
+    m.def(
+        "pyin_weighted_median",
+        &mlx_audio::pyin_weighted_median_wrapper,
+        "candidates"_a,
+        "weights"_a,
+        "n_candidates"_a,
+        "stream"_a = nb::none(),
+        R"(
+        Compute weighted median from PYIN candidates.
+
+        For each frame, computes the weighted median of the pitch candidates.
+
+        Parameters
+        ----------
+        candidates : mlx.core.array
+            Frequency candidates. Shape: (n_frames, n_thresholds).
+        weights : mlx.core.array
+            Candidate weights. Shape: (n_frames, n_thresholds).
+        n_candidates : mlx.core.array
+            Number of valid candidates per frame. Shape: (n_frames,).
+        stream : mlx.core.Stream, optional
+            Stream for computation.
+
+        Returns
+        -------
+        tuple
+            (f0, voiced_prob) where:
+            - f0: Fundamental frequency per frame. Shape: (n_frames,).
+            - voiced_prob: Voicing probability. Shape: (n_frames,).
         )");
 }

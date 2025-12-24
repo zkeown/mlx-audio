@@ -2,6 +2,7 @@
 
 #include <mlx/array.h>
 #include <mlx/stream.h>
+#include <mlx/utils.h>
 
 namespace mlx_audio {
 
