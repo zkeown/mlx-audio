@@ -161,13 +161,11 @@ def generate_tokens(
     if seed is not None:
         mx.random.seed(seed)
 
-    # Project text conditioning
-    encoder_hidden_states = model.project_text_embeddings(encoder_hidden_states)
-
     # Prepare unconditional embeddings for CFG if needed
+    # Note: projection happens in model.forward(), not here
     uncond_encoder_states = None
     if cfg_scale > 1.0:
-        # Use zeros as unconditional conditioning
+        # Use zeros as unconditional conditioning (same shape as encoder states)
         uncond_encoder_states = mx.zeros_like(encoder_hidden_states)
 
     # Initialize with BOS tokens for all codebooks

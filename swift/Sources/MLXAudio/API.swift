@@ -10,27 +10,284 @@ import MLXAudioModels
 // MARK: - Error Types
 
 /// Errors that can occur during audio processing.
-public enum MLXAudioError: Error, LocalizedError {
-    case modelNotFound(String)
-    case invalidInput(String)
-    case processingFailed(String)
-    case notImplemented(String)
-    case modelLoadFailed(String)
+///
+/// Each error case provides detailed context about what went wrong,
+/// including specific error codes and recovery suggestions where applicable.
+public enum MLXAudioError: Error, LocalizedError, Sendable {
+
+    // MARK: - Model Errors
+
+    /// Model not found at the specified location.
+    ///
+    /// - Parameters:
+    ///   - model: The model identifier that was requested
+    ///   - searchPath: The path where the model was expected (if applicable)
+    case modelNotFound(model: String, searchPath: String? = nil)
+
+    /// Model failed to load.
+    ///
+    /// - Parameters:
+    ///   - model: The model identifier
+    ///   - reason: Specific reason for the failure
+    ///   - underlyingError: The original error if available
+    case modelLoadFailed(model: String, reason: ModelLoadFailureReason, underlyingError: String? = nil)
+
+    /// Model configuration is invalid.
+    ///
+    /// - Parameters:
+    ///   - model: The model identifier
+    ///   - issue: Description of the configuration issue
+    case invalidModelConfig(model: String, issue: String)
+
+    // MARK: - Input Errors
+
+    /// Invalid input data provided.
+    ///
+    /// - Parameters:
+    ///   - parameter: Name of the invalid parameter
+    ///   - expected: What was expected
+    ///   - received: What was actually received
+    case invalidInput(parameter: String, expected: String, received: String)
+
+    /// Audio format is not supported.
+    ///
+    /// - Parameters:
+    ///   - format: The unsupported format description
+    ///   - supportedFormats: List of supported formats
+    case unsupportedAudioFormat(format: String, supportedFormats: [String])
+
+    /// Audio duration is out of valid range.
+    ///
+    /// - Parameters:
+    ///   - duration: The actual duration
+    ///   - minDuration: Minimum allowed duration (if applicable)
+    ///   - maxDuration: Maximum allowed duration (if applicable)
+    case invalidDuration(duration: Double, minDuration: Double?, maxDuration: Double?)
+
+    /// Sample rate is not supported.
+    ///
+    /// - Parameters:
+    ///   - sampleRate: The provided sample rate
+    ///   - supportedRates: List of supported sample rates
+    case unsupportedSampleRate(sampleRate: Int, supportedRates: [Int])
+
+    // MARK: - Processing Errors
+
+    /// Processing failed at a specific stage.
+    ///
+    /// - Parameters:
+    ///   - stage: The processing stage where failure occurred
+    ///   - reason: Specific reason for the failure
+    case processingFailed(stage: ProcessingStage, reason: String)
+
+    /// Inference failed during model execution.
+    ///
+    /// - Parameters:
+    ///   - model: The model that failed
+    ///   - stage: The inference stage (encoding, decoding, etc.)
+    ///   - reason: Specific reason for the failure
+    case inferenceFailed(model: String, stage: String, reason: String)
+
+    /// Out of memory during processing.
+    ///
+    /// - Parameters:
+    ///   - requiredMB: Estimated memory required
+    ///   - availableMB: Memory available at time of failure
+    ///   - suggestion: Recovery suggestion
+    case outOfMemory(requiredMB: UInt64, availableMB: UInt64, suggestion: String)
+
+    // MARK: - Feature Errors
+
+    /// Feature is not yet implemented.
+    ///
+    /// - Parameter feature: The requested feature
+    case notImplemented(feature: String)
+
+    /// Feature requires additional dependencies.
+    ///
+    /// - Parameters:
+    ///   - feature: The requested feature
+    ///   - missingDependency: The missing dependency
+    case missingDependency(feature: String, missingDependency: String)
+
+    // MARK: - Network Errors (for Hub operations)
+
+    /// Network operation failed.
+    ///
+    /// - Parameters:
+    ///   - operation: The operation that failed (download, fetch, etc.)
+    ///   - reason: Specific reason for the failure
+    ///   - isRetryable: Whether the operation can be retried
+    case networkError(operation: String, reason: String, isRetryable: Bool)
+
+    // MARK: - LocalizedError Conformance
 
     public var errorDescription: String? {
         switch self {
-        case .modelNotFound(let model):
-            return "Model not found: \(model)"
-        case .invalidInput(let message):
-            return "Invalid input: \(message)"
-        case .processingFailed(let message):
-            return "Processing failed: \(message)"
+        case .modelNotFound(let model, let path):
+            if let path = path {
+                return "Model '\(model)' not found at path: \(path)"
+            }
+            return "Model '\(model)' not found. Ensure the model is downloaded first."
+
+        case .modelLoadFailed(let model, let reason, let underlying):
+            var message = "Failed to load model '\(model)': \(reason.description)"
+            if let underlying = underlying {
+                message += " (\(underlying))"
+            }
+            return message
+
+        case .invalidModelConfig(let model, let issue):
+            return "Invalid configuration for model '\(model)': \(issue)"
+
+        case .invalidInput(let param, let expected, let received):
+            return "Invalid input for '\(param)': expected \(expected), received \(received)"
+
+        case .unsupportedAudioFormat(let format, let supported):
+            return "Unsupported audio format '\(format)'. Supported: \(supported.joined(separator: ", "))"
+
+        case .invalidDuration(let duration, let min, let max):
+            var message = "Invalid duration \(String(format: "%.2f", duration))s."
+            if let min = min { message += " Minimum: \(String(format: "%.2f", min))s." }
+            if let max = max { message += " Maximum: \(String(format: "%.2f", max))s." }
+            return message
+
+        case .unsupportedSampleRate(let rate, let supported):
+            return "Unsupported sample rate \(rate) Hz. Supported: \(supported.map(String.init).joined(separator: ", ")) Hz"
+
+        case .processingFailed(let stage, let reason):
+            return "Processing failed at \(stage.rawValue) stage: \(reason)"
+
+        case .inferenceFailed(let model, let stage, let reason):
+            return "Inference failed for '\(model)' during \(stage): \(reason)"
+
+        case .outOfMemory(let required, let available, let suggestion):
+            return "Out of memory: required ~\(required)MB, available ~\(available)MB. \(suggestion)"
+
         case .notImplemented(let feature):
-            return "Not yet implemented: \(feature)"
-        case .modelLoadFailed(let message):
-            return "Failed to load model: \(message)"
+            return "'\(feature)' is not yet implemented"
+
+        case .missingDependency(let feature, let dep):
+            return "'\(feature)' requires '\(dep)' which is not available"
+
+        case .networkError(let operation, let reason, let retryable):
+            var message = "Network error during \(operation): \(reason)"
+            if retryable {
+                message += " (retryable)"
+            }
+            return message
         }
     }
+
+    /// Suggestion for recovering from this error.
+    public var recoverySuggestion: String? {
+        switch self {
+        case .modelNotFound:
+            return "Download the model using HuggingFaceHub.shared.download(repo:)"
+
+        case .modelLoadFailed(_, let reason, _):
+            return reason.recoverySuggestion
+
+        case .unsupportedSampleRate(_, let supported):
+            return "Resample the audio to one of the supported rates: \(supported.map(String.init).joined(separator: ", ")) Hz"
+
+        case .outOfMemory(_, _, let suggestion):
+            return suggestion
+
+        case .networkError(_, _, let retryable):
+            return retryable ? "Try the operation again" : nil
+
+        default:
+            return nil
+        }
+    }
+
+    /// Error code for programmatic handling.
+    public var errorCode: Int {
+        switch self {
+        case .modelNotFound: return 1001
+        case .modelLoadFailed: return 1002
+        case .invalidModelConfig: return 1003
+        case .invalidInput: return 2001
+        case .unsupportedAudioFormat: return 2002
+        case .invalidDuration: return 2003
+        case .unsupportedSampleRate: return 2004
+        case .processingFailed: return 3001
+        case .inferenceFailed: return 3002
+        case .outOfMemory: return 3003
+        case .notImplemented: return 4001
+        case .missingDependency: return 4002
+        case .networkError: return 5001
+        }
+    }
+}
+
+// MARK: - Supporting Types
+
+/// Reasons for model loading failures.
+public enum ModelLoadFailureReason: Sendable {
+    /// Weights file is missing
+    case weightsMissing
+    /// Weights file is corrupted or invalid format
+    case weightsCorrupted
+    /// Configuration file is missing
+    case configMissing
+    /// Configuration file is invalid
+    case configInvalid
+    /// Tokenizer files are missing
+    case tokenizerMissing
+    /// Model architecture is not supported
+    case unsupportedArchitecture
+    /// Insufficient memory to load model
+    case insufficientMemory
+    /// Other/unknown reason
+    case other(String)
+
+    var description: String {
+        switch self {
+        case .weightsMissing: return "weights file not found"
+        case .weightsCorrupted: return "weights file is corrupted or invalid"
+        case .configMissing: return "config.json not found"
+        case .configInvalid: return "config.json is invalid"
+        case .tokenizerMissing: return "tokenizer files not found"
+        case .unsupportedArchitecture: return "model architecture is not supported"
+        case .insufficientMemory: return "insufficient memory to load model"
+        case .other(let msg): return msg
+        }
+    }
+
+    var recoverySuggestion: String? {
+        switch self {
+        case .weightsMissing, .configMissing, .tokenizerMissing:
+            return "Re-download the model from HuggingFace Hub"
+        case .weightsCorrupted:
+            return "Delete the cached model and re-download"
+        case .insufficientMemory:
+            return "Try a smaller model variant or close other applications"
+        default:
+            return nil
+        }
+    }
+}
+
+/// Processing stages where failures can occur.
+public enum ProcessingStage: String, Sendable {
+    /// Audio loading and decoding
+    case audioLoading = "Audio Loading"
+    /// Resampling audio to target rate
+    case resampling = "Resampling"
+    /// Feature extraction (STFT, mel-spectrogram, etc.)
+    case featureExtraction = "Feature Extraction"
+    /// Preprocessing before model inference
+    case preprocessing = "Preprocessing"
+    /// Model inference/forward pass
+    case inference = "Inference"
+    /// Postprocessing model outputs
+    case postprocessing = "Postprocessing"
+    /// Audio synthesis/decoding
+    case audioSynthesis = "Audio Synthesis"
+    /// Output formatting
+    case outputFormatting = "Output Formatting"
 }
 
 // MARK: - Model Loading
@@ -87,10 +344,7 @@ public func separate(
 ) async throws -> SeparationResult {
     // Get model path
     guard let modelPath = options.modelPath else {
-        throw MLXAudioError.modelNotFound(
-            "Model path must be provided via options.modelPath. " +
-            "Download the model first using HuggingFaceDownloader."
-        )
+        throw MLXAudioError.modelNotFound(model: model, searchPath: nil)
     }
 
     // Get model variant info for memory estimation
@@ -192,10 +446,7 @@ public func transcribe(
     options: ModelOptions = ModelOptions()
 ) async throws -> TranscriptionResult {
     guard let modelPath = options.modelPath else {
-        throw MLXAudioError.modelNotFound(
-            "Model path must be provided via options.modelPath. " +
-            "Download the model first using HuggingFaceDownloader."
-        )
+        throw MLXAudioError.modelNotFound(model: model, searchPath: nil)
     }
 
     // Load Whisper model (not via cache due to Sendable requirement)
@@ -334,10 +585,7 @@ public func generate(
     options: ModelOptions = ModelOptions()
 ) async throws -> GenerationResult {
     guard let modelPath = options.modelPath else {
-        throw MLXAudioError.modelNotFound(
-            "Model path must be provided via options.modelPath. " +
-            "Download the model first using HuggingFaceDownloader."
-        )
+        throw MLXAudioError.modelNotFound(model: model, searchPath: nil)
     }
 
     // Get config for model
@@ -429,14 +677,15 @@ public func embed(
     options: ModelOptions = ModelOptions()
 ) async throws -> EmbeddingResult {
     guard audio != nil || text != nil else {
-        throw MLXAudioError.invalidInput("Either audio or text must be provided")
+        throw MLXAudioError.invalidInput(
+            parameter: "audio/text",
+            expected: "at least one of audio or text",
+            received: "neither"
+        )
     }
 
     guard let modelPath = options.modelPath else {
-        throw MLXAudioError.modelNotFound(
-            "Model path must be provided via options.modelPath. " +
-            "Download the model first using HuggingFaceDownloader."
-        )
+        throw MLXAudioError.modelNotFound(model: model, searchPath: nil)
     }
 
     // Get memory estimate
@@ -472,7 +721,11 @@ public func embed(
     } else if let text = text {
         embeddings = try clap.encodeText(text, normalize: true)
     } else {
-        throw MLXAudioError.invalidInput("Either audio or text must be provided")
+        throw MLXAudioError.invalidInput(
+            parameter: "audio/text",
+            expected: "at least one of audio or text",
+            received: "neither"
+        )
     }
 
     return EmbeddingResult(
@@ -514,7 +767,7 @@ public func speak(
     options: ModelOptions = ModelOptions()
 ) async throws -> SpeechResult {
     // ParlerTTS not yet ported to Swift
-    throw MLXAudioError.notImplemented("Text-to-speech requires ParlerTTS model (not yet ported to Swift)")
+    throw MLXAudioError.notImplemented(feature: "Text-to-speech (ParlerTTS)")
 }
 
 // MARK: - Audio Classification
@@ -548,14 +801,15 @@ public func classify(
     options: ModelOptions = ModelOptions()
 ) async throws -> ClassificationResult {
     guard !labels.isEmpty else {
-        throw MLXAudioError.invalidInput("Labels must be provided for zero-shot classification")
+        throw MLXAudioError.invalidInput(
+            parameter: "labels",
+            expected: "non-empty array of class labels",
+            received: "empty array"
+        )
     }
 
     guard let modelPath = options.modelPath else {
-        throw MLXAudioError.modelNotFound(
-            "Model path must be provided via options.modelPath. " +
-            "Download the model first using HuggingFaceDownloader."
-        )
+        throw MLXAudioError.modelNotFound(model: model, searchPath: nil)
     }
 
     // Get memory estimate
@@ -641,14 +895,15 @@ public func tag(
     options: ModelOptions = ModelOptions()
 ) async throws -> TaggingResult {
     guard !tags.isEmpty else {
-        throw MLXAudioError.invalidInput("Tags must be provided for zero-shot tagging")
+        throw MLXAudioError.invalidInput(
+            parameter: "tags",
+            expected: "non-empty array of tag labels",
+            received: "empty array"
+        )
     }
 
     guard let modelPath = options.modelPath else {
-        throw MLXAudioError.modelNotFound(
-            "Model path must be provided via options.modelPath. " +
-            "Download the model first using HuggingFaceDownloader."
-        )
+        throw MLXAudioError.modelNotFound(model: model, searchPath: nil)
     }
 
     // Get memory estimate

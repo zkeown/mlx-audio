@@ -177,8 +177,8 @@ class MusicGenLMHead(nn.Module):
         self.num_codebooks = config.num_codebooks
 
         # Separate linear projection for each codebook
-        # Output dimension is codebook_size + 1 for special tokens
-        vocab_size = config.codebook_size + 1
+        # Output dimension matches HuggingFace MusicGen (codebook_size)
+        vocab_size = config.codebook_size
         self.linears = [
             nn.Linear(config.hidden_size, vocab_size, bias=False)
             for _ in range(config.num_codebooks)

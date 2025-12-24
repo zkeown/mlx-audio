@@ -40,12 +40,16 @@ class ParlerTTSConverter(WeightConverter):
     ]
 
     KEY_MAPPINGS = [
-        # Decoder layers
+        # Strip model.decoder. prefix from HuggingFace keys
+        (r"^model\.decoder\.", ""),
+        # Decoder layers - add decoder. prefix since we stripped model.decoder.
+        (r"^layers\.(\d+)\.", r"decoder.layers.\1."),
+        # Also handle case where decoder.layers already present
         (r"^decoder\.layers\.(\d+)\.", r"decoder.layers.\1."),
         # Self-attention
         (r"\.self_attn\.", ".self_attn."),
         (r"\.encoder_attn\.", ".encoder_attn."),
-        # Layer norms (RMSNorm in Parler)
+        # Layer norms (with bias)
         (r"\.self_attn_layer_norm\.", ".self_attn_layer_norm."),
         (r"\.encoder_attn_layer_norm\.", ".encoder_attn_layer_norm."),
         (r"\.final_layer_norm\.", ".final_layer_norm."),
@@ -57,20 +61,16 @@ class ParlerTTSConverter(WeightConverter):
         (r"\.q_proj\.", ".q_proj."),
         (r"\.o_proj\.", ".out_proj."),
         (r"\.out_proj\.", ".out_proj."),
-        # FFN (SwiGLU: gate_proj, up_proj, down_proj -> fc1, fc2, fc3)
-        (r"\.mlp\.gate_proj\.", ".fc1."),
-        (r"\.mlp\.up_proj\.", ".fc2."),
-        (r"\.mlp\.down_proj\.", ".fc3."),
-        # Legacy FFN mapping
+        # FFN (2-layer GELU: fc1, fc2)
         (r"\.fc1\.", ".fc1."),
         (r"\.fc2\.", ".fc2."),
         # Embed tokens (per codebook)
+        (r"^embed_tokens\.(\d+)\.", r"embeddings.embeddings.\1."),
         (r"^decoder\.embed_tokens\.(\d+)\.", r"embeddings.embeddings.\1."),
-        (r"^model\.decoder\.embed_tokens\.(\d+)\.",
-         r"embeddings.embeddings.\1."),
         # Final layer norm
+        (r"^layer_norm\.", "decoder.layer_norm."),
         (r"^decoder\.layer_norm\.", "decoder.layer_norm."),
-        (r"^model\.decoder\.norm\.", "decoder.layer_norm."),
+        (r"^norm\.", "decoder.layer_norm."),
         # LM heads (per codebook)
         (r"^lm_heads\.(\d+)\.", r"lm_head.linears.\1."),
         # Text/description projections

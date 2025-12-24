@@ -249,8 +249,16 @@ public actor SpeakerSink: @preconcurrency AudioSink {
 
     /// Write samples to the speaker.
     ///
+    /// This method supports cooperative cancellation - if the current Task is
+    /// cancelled, it will throw `CancellationError` on the next call.
+    ///
     /// - Parameter samples: Audio samples as MLXArray [channels, samples]
+    /// - Throws: `SpeakerError.notRunning` if speaker is not active,
+    ///           `CancellationError` if the task was cancelled
     public func write(_ samples: MLXArray) async throws {
+        // Check for task cancellation before processing
+        try Task.checkCancellation()
+
         guard _isActive else {
             throw SpeakerError.notRunning
         }

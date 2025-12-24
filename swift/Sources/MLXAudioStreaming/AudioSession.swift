@@ -190,11 +190,46 @@ public actor AudioSessionManager {
 
     /// Continuation for route change events
     private var routeChangeContinuation: AsyncStream<AudioRouteChange>.Continuation?
+
+    /// Stream of interruption events (created once, reused for all subscribers).
+    private var _interruptions: AsyncStream<AudioSessionInterruption>?
+
+    /// Stream of route change events (created once, reused for all subscribers).
+    private var _routeChanges: AsyncStream<AudioRouteChange>?
     #endif
 
     // MARK: - Initialization
 
-    private init() {}
+    private init() {
+        #if os(iOS) || os(tvOS) || os(visionOS)
+        // Create streams once during initialization to avoid recreating on each access
+        _interruptions = AsyncStream { [weak self] continuation in
+            Task { @MainActor in
+                // Note: We need to set this after the actor is initialized,
+                // but the stream creation happens synchronously. We use Task
+                // to defer the assignment until after init completes.
+                await self?.setInterruptionContinuation(continuation)
+            }
+        }
+        _routeChanges = AsyncStream { [weak self] continuation in
+            Task { @MainActor in
+                await self?.setRouteChangeContinuation(continuation)
+            }
+        }
+        #endif
+    }
+
+    #if os(iOS) || os(tvOS) || os(visionOS)
+    /// Set the interruption continuation (called after init via Task).
+    private func setInterruptionContinuation(_ continuation: AsyncStream<AudioSessionInterruption>.Continuation) {
+        self.interruptionContinuation = continuation
+    }
+
+    /// Set the route change continuation (called after init via Task).
+    private func setRouteChangeContinuation(_ continuation: AsyncStream<AudioRouteChange>.Continuation) {
+        self.routeChangeContinuation = continuation
+    }
+    #endif
 
     // MARK: - Configuration
 
@@ -387,17 +422,27 @@ public actor AudioSessionManager {
 
     #if os(iOS) || os(tvOS) || os(visionOS)
     /// Stream of interruption events.
+    ///
+    /// Returns the same stream instance on each access. Multiple subscribers
+    /// will receive the same events.
     public var interruptions: AsyncStream<AudioSessionInterruption> {
-        AsyncStream { continuation in
-            self.interruptionContinuation = continuation
+        guard let stream = _interruptions else {
+            // Fallback for edge case where stream creation failed
+            return AsyncStream { _ in }
         }
+        return stream
     }
 
     /// Stream of route change events.
+    ///
+    /// Returns the same stream instance on each access. Multiple subscribers
+    /// will receive the same events.
     public var routeChanges: AsyncStream<AudioRouteChange> {
-        AsyncStream { continuation in
-            self.routeChangeContinuation = continuation
+        guard let stream = _routeChanges else {
+            // Fallback for edge case where stream creation failed
+            return AsyncStream { _ in }
         }
+        return stream
     }
 
     // MARK: - Private

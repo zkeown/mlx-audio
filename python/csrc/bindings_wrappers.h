@@ -11,6 +11,7 @@
 #include "primitives/resample.h"
 #include "primitives/dct.h"
 #include "primitives/spectral.h"
+#include "primitives/spectral_contrast.h"
 
 namespace mlx_audio {
 
@@ -199,6 +200,21 @@ inline mlx::core::array spectral_flatness_wrapper(
         return spectral_flatness(S, amin, stream.value());
     }
     return spectral_flatness(S, amin);
+}
+
+// Spectral contrast wrapper
+inline mlx::core::array spectral_contrast_wrapper(
+    const mlx::core::array& S,
+    const mlx::core::array& frequencies,
+    float fmin,
+    int n_bands,
+    float quantile,
+    bool linear,
+    std::optional<mlx::core::Stream> stream) {
+    if (stream.has_value()) {
+        return spectral_contrast(S, frequencies, fmin, n_bands, quantile, linear, stream.value());
+    }
+    return spectral_contrast(S, frequencies, fmin, n_bands, quantile, linear);
 }
 
 }  // namespace mlx_audio

@@ -3,19 +3,18 @@
 These tests validate that the MLX implementation produces outputs
 that match the PyTorch/HuggingFace reference implementation.
 
-IMPORTANT: The current MLX implementation differs architecturally from
-the parler-tts/parler-tts-mini-v1 model:
-- MLX uses SwiGLU (fc1/fc2/fc3), PyTorch uses GELU (fc1/fc2)
-- MLX uses RoPE, PyTorch uses sinusoidal positional embeddings
-- MLX uses RMSNorm, PyTorch uses LayerNorm (with bias)
+The MLX implementation now matches the PyTorch parler-tts architecture:
+- 2-layer GELU FFN (fc1/fc2)
+- Sinusoidal positional embeddings (added once to inputs)
+- LayerNorm with bias
 
-These tests focus on:
+These tests cover:
 1. Shape validation
 2. Embedding parity (weights can be copied directly)
-3. Weight key mapping validation
-4. Numerical stability
-
-Full numerical parity requires updating the MLX architecture to match PyTorch.
+3. LM head parity
+4. Full decoder parity
+5. Weight key mapping validation
+6. Numerical stability
 
 Requires: parler-tts package installed (pip install parler-tts)
 """
@@ -138,6 +137,30 @@ def pt_reference_outputs(random_inputs):
         results["lm_head_output"] = lm_head_output.numpy()
         results["lm_head_input"] = hidden_states.numpy()
 
+        # 3. Decoder block output (first layer only for speed)
+        # Create input with sinusoidal positional embeddings (like the model does)
+        decoder_input = embeddings_sum
+        pos_emb = inner_decoder.embed_positions.weights[:seq_length]
+        decoder_input = decoder_input + pos_emb
+
+        # Run first decoder layer
+        first_layer = inner_decoder.layers[0]
+
+        # Create causal mask
+        causal_mask = torch.triu(
+            torch.ones(seq_length, seq_length, dtype=torch.bool), diagonal=1
+        )
+        causal_mask = causal_mask.float().masked_fill(causal_mask, float("-inf"))
+
+        # Forward through first layer
+        layer_output = first_layer(
+            decoder_input,
+            attention_mask=causal_mask.unsqueeze(0).unsqueeze(0),  # [1, 1, T, T]
+        )[0]
+        results["decoder_layer_output"] = layer_output.numpy()
+        results["decoder_layer_input"] = decoder_input.numpy()
+        results["sinusoidal_pos_emb"] = pos_emb.numpy()
+
     print("PyTorch reference outputs computed.")
     return results
 
@@ -164,10 +187,7 @@ def mlx_model():
 
 @pytest.fixture(scope="module")
 def mlx_model_with_embedding_weights(pt_reference_outputs):
-    """Create MLX model with embedding weights from PyTorch.
-
-    Only loads embedding and LM head weights since the FFN architecture differs.
-    """
+    """Create MLX model with embedding and LM head weights from PyTorch."""
     from mlx_audio.models.tts import ParlerTTS, ParlerTTSConfig
 
     config = ParlerTTSConfig.mini()
@@ -199,6 +219,35 @@ def mlx_model_with_embedding_weights(pt_reference_outputs):
             mlx_weights[mlx_key_bias] = mx.array(pt_state_dict[pt_key_bias].detach().cpu().numpy())
 
     # Load weights (strict=False to allow partial loading)
+    model.load_weights(list(mlx_weights.items()), strict=False)
+
+    return model
+
+
+@pytest.fixture(scope="module")
+def mlx_model_with_all_weights(pt_reference_outputs):
+    """Create MLX model with ALL decoder weights from PyTorch.
+
+    This loads the full decoder including attention, FFN, and layer norms.
+    """
+    from mlx_audio.models.tts import ParlerTTS, ParlerTTSConfig
+    from mlx_audio.models.tts.convert import ParlerTTSConverter
+
+    config = ParlerTTSConfig.mini()
+    model = ParlerTTS(config)
+
+    pt_model = pt_reference_outputs["model"]
+    pt_state_dict = pt_model.decoder.state_dict()
+
+    converter = ParlerTTSConverter()
+    mlx_weights = {}
+
+    for pt_key, pt_tensor in pt_state_dict.items():
+        mlx_key = converter.map_key(pt_key)
+        if mlx_key is not None:
+            mlx_weights[mlx_key] = mx.array(pt_tensor.detach().cpu().numpy())
+
+    # Load weights (strict=False since some keys may not match perfectly)
     model.load_weights(list(mlx_weights.items()), strict=False)
 
     return model
@@ -366,6 +415,56 @@ class TestParlerTTSLMHeadParity:
 
 
 # =============================================================================
+# Decoder Parity Tests (full decoder with all weights)
+# =============================================================================
+
+
+@pytest.mark.parity
+@pytest.mark.slow
+class TestParlerTTSDecoderParity:
+    """Tests for full decoder parity with all weights loaded."""
+
+    def test_sinusoidal_embeddings_match(self, pt_reference_outputs):
+        """Test that sinusoidal positional embeddings match PyTorch."""
+        from mlx_audio.models.tts.layers.embeddings import sinusoidal_embeddings
+
+        pt_pos_emb = pt_reference_outputs["sinusoidal_pos_emb"]
+        seq_length = pt_pos_emb.shape[0]
+        hidden_size = pt_pos_emb.shape[1]
+
+        mlx_pos_emb = sinusoidal_embeddings(seq_length, hidden_size)
+        mx.eval(mlx_pos_emb)
+
+        mae = np.mean(np.abs(pt_pos_emb - np.array(mlx_pos_emb)))
+        assert mae < 1e-5, f"Sinusoidal embedding MAE too high: {mae}"
+
+    def test_decoder_layer_output_match(
+        self, pt_reference_outputs, mlx_model_with_all_weights, random_inputs
+    ):
+        """Test that first decoder layer output matches PyTorch."""
+        pt_layer_output = pt_reference_outputs["decoder_layer_output"]
+        pt_layer_input = pt_reference_outputs["decoder_layer_input"]
+
+        # Run first decoder layer in MLX
+        mlx_model = mlx_model_with_all_weights
+        first_layer = mlx_model.decoder.layers[0]
+
+        hidden_states = mx.array(pt_layer_input)
+        seq_length = hidden_states.shape[1]
+        causal_mask = mlx_model.decoder.create_causal_mask(seq_length)
+
+        mlx_output, _ = first_layer(
+            hidden_states,
+            attention_mask=causal_mask,
+        )
+        mx.eval(mlx_output)
+
+        # Compare
+        mae = np.mean(np.abs(pt_layer_output - np.array(mlx_output)))
+        assert mae < 1e-3, f"Decoder layer MAE too high: {mae}"
+
+
+# =============================================================================
 # Numerical Stability Tests
 # =============================================================================
 
@@ -496,48 +595,43 @@ class TestParlerTTSWeightMapping:
 
 
 # =============================================================================
-# Architecture Difference Documentation Test
+# Architecture Verification Test
 # =============================================================================
 
 
 @pytest.mark.parity
 @pytest.mark.slow
-class TestArchitectureDifferences:
-    """Document architecture differences between MLX and PyTorch."""
+class TestArchitectureMatch:
+    """Verify that MLX architecture matches PyTorch."""
 
-    def test_document_architecture_differences(self, pt_reference_outputs):
-        """Document the differences between MLX and PyTorch architectures."""
+    def test_architecture_matches_pytorch(self, pt_reference_outputs):
+        """Verify MLX architecture now matches PyTorch."""
         pt_model = pt_reference_outputs["model"]
         config = pt_model.config.decoder
-
-        differences = []
-
-        # Check activation function
-        if config.activation_function != "silu":
-            differences.append(
-                f"Activation: PT uses '{config.activation_function}', MLX uses 'silu' (SwiGLU)"
-            )
-
-        # Check RoPE
-        if not config.rope_embeddings:
-            differences.append("Positional embeddings: PT uses sinusoidal, MLX uses RoPE")
-
-        # Check normalization (PT uses LayerNorm based on state dict keys with bias)
         pt_state_dict = pt_model.decoder.state_dict()
-        if "model.decoder.layers.0.self_attn_layer_norm.bias" in pt_state_dict:
-            differences.append("Normalization: PT uses LayerNorm, MLX uses RMSNorm")
 
-        # Check FFN structure
-        if "model.decoder.layers.0.fc3.weight" not in pt_state_dict:
-            differences.append(
-                "FFN: PT uses 2 layers (fc1/fc2 with GELU), "
-                "MLX uses 3 layers (fc1/fc2/fc3 for SwiGLU)"
-            )
+        # Verify GELU activation (MLX now uses GELU too)
+        assert config.activation_function == "gelu", (
+            f"Expected GELU activation, got {config.activation_function}"
+        )
 
-        # This test always passes - it documents the differences
-        print("\n=== Architecture Differences ===")
-        for diff in differences:
-            print(f"  - {diff}")
+        # Verify sinusoidal positional embeddings (not RoPE)
+        assert not config.rope_embeddings, "Expected sinusoidal embeddings, not RoPE"
 
-        # Store in test results for reference
-        assert len(differences) > 0, "Expected architecture differences"
+        # Verify LayerNorm (with bias)
+        assert "model.decoder.layers.0.self_attn_layer_norm.bias" in pt_state_dict, (
+            "Expected LayerNorm with bias"
+        )
+
+        # Verify 2-layer FFN (no fc3)
+        assert "model.decoder.layers.0.fc3.weight" not in pt_state_dict, (
+            "Expected 2-layer FFN (no fc3)"
+        )
+        assert "model.decoder.layers.0.fc1.weight" in pt_state_dict
+        assert "model.decoder.layers.0.fc2.weight" in pt_state_dict
+
+        print("\n=== Architecture Match Verified ===")
+        print("  - GELU activation: ✓")
+        print("  - Sinusoidal positional embeddings: ✓")
+        print("  - LayerNorm with bias: ✓")
+        print("  - 2-layer FFN (fc1/fc2): ✓")

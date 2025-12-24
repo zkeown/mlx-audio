@@ -404,6 +404,19 @@ class EncodecResidualVectorQuantizer(nn.Module):
 
         return quantized
 
+    def __call__(self, x: mx.array) -> tuple[mx.array, mx.array]:
+        """Quantize input embeddings.
+
+        Args:
+            x: Input embeddings [B, T, D]
+
+        Returns:
+            Tuple of (quantized embeddings, codes)
+        """
+        codes = self.encode(x)
+        quantized = self.decode(codes)
+        return quantized, codes
+
 
 class EncodecEncoder(nn.Module):
     """Encoder matching HuggingFace exactly.

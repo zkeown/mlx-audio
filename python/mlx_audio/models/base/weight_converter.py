@@ -124,16 +124,18 @@ class WeightConverter(ABC):
         # Load checkpoint
         self._log(f"Loading PyTorch checkpoint from {pytorch_path}...")
         try:
-            checkpoint = torch.load(
-                pytorch_path, map_location="cpu", weights_only=False
-            )
+            if pytorch_path.suffix == ".safetensors":
+                from safetensors.torch import load_file
+                state_dict = load_file(str(pytorch_path))
+            else:
+                checkpoint = torch.load(
+                    pytorch_path, map_location="cpu", weights_only=False
+                )
+                state_dict = self._extract_state_dict(checkpoint)
         except Exception as e:
             raise WeightConversionError(
                 f"Failed to load PyTorch checkpoint: {e}"
             ) from e
-
-        # Extract state dict
-        state_dict = self._extract_state_dict(checkpoint)
 
         # Convert weights
         self._log(f"Converting {len(state_dict)} parameters...")

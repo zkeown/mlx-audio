@@ -543,7 +543,16 @@ def spectral_contrast(
     if not is_batched:
         S = S[None, :]
 
-    # NOTE: Uses numpy for complex band logic - octave band iteration,
+    # Use C++ extension with Metal acceleration if available
+    if HAS_CPP_EXT:
+        contrast = _ext.spectral_contrast(
+            S, freq, fmin, n_bands, quantile, linear
+        )
+        if not is_batched:
+            contrast = contrast[0] if contrast.ndim == 3 else contrast
+        return contrast
+
+    # Fallback: NumPy implementation for complex band logic - octave band iteration,
     # per-band quantile sorting, and neighbor bin extension require operations
     # (selective indexing, partial sorting) not efficiently expressible in MLX.
     # This matches librosa's exact algorithm for reproducibility.

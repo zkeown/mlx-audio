@@ -380,18 +380,14 @@ class TestParlerTTSWeightConversion:
                 "lm_heads.0.weight",
                 "lm_head.linears.0.weight",
             ),
-            # FFN SwiGLU mapping
+            # FFN (2-layer GELU) mapping
             (
-                "decoder.layers.0.mlp.gate_proj.weight",
+                "decoder.layers.0.fc1.weight",
                 "decoder.layers.0.fc1.weight",
             ),
             (
-                "decoder.layers.0.mlp.up_proj.weight",
                 "decoder.layers.0.fc2.weight",
-            ),
-            (
-                "decoder.layers.0.mlp.down_proj.weight",
-                "decoder.layers.0.fc3.weight",
+                "decoder.layers.0.fc2.weight",
             ),
         ]
 

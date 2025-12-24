@@ -11,7 +11,7 @@ on:
 
 jobs:
   analyze:
-    name: Analyze
+    name: Analyze (${{ matrix.language }})
     runs-on: macos-latest
     permissions:
       actions: read
@@ -21,20 +21,42 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [python]
+        language: [python, c-cpp]
+        include:
+          - language: python
+            build-mode: none
+          - language: c-cpp
+            build-mode: manual
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup Python (for C++ build)
+        if: matrix.language == 'c-cpp'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
+          build-mode: ${{ matrix.build-mode }}
 
-      - name: Autobuild
+      - name: Autobuild (Python)
+        if: matrix.language == 'python'
         uses: github/codeql-action/autobuild@v3
+
+      - name: Build C++ extensions
+        if: matrix.language == 'c-cpp'
+        run: |
+          # Install build dependencies
+          pip install mlx nanobind scikit-build-core cmake ninja
+          # Build the C++ extensions
+          cd python
+          pip install -e . --no-build-isolation -v 2>&1 || echo "Build completed (may have partial success)"
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

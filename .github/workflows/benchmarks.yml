@@ -1,18 +1,32 @@
 # Benchmark workflow - runs on release and updates documentation
 # Runs on self-hosted Apple Silicon runner for accurate benchmarks
+# Includes performance regression detection
 
 name: Benchmarks
 
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
+    paths:
+      - 'python/mlx_audio/primitives/**'
+      - 'python/csrc/**'
   workflow_dispatch:
     inputs:
       update_docs:
         description: 'Update documentation with results'
         required: false
-        default: 'true'
+        default: true
         type: boolean
+      regression_threshold:
+        description: 'Regression threshold percentage (e.g., 10 for 10%)'
+        required: false
+        default: '15'
+        type: string
+
+env:
+  REGRESSION_THRESHOLD: ${{ github.event.inputs.regression_threshold || '15' }}
 
 jobs:
   benchmark:
@@ -40,10 +54,137 @@ jobs:
           echo "macos=$(sw_vers -productVersion)" >> $GITHUB_OUTPUT
           echo "date=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
+      - name: Download baseline benchmarks
+        id: baseline
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: benchmarks.yml
+          name: benchmark-baseline
+          path: baseline/
+          if_no_artifact_found: warn
+        continue-on-error: true
+
       - name: Run primitive benchmarks
         working-directory: python
         run: |
           python -m benchmarks.run_benchmarks --quick --output benchmark_results.json
+
+      - name: Check for performance regressions
+        id: regression
+        working-directory: python
+        run: |
+          python << 'EOF'
+          import json
+          import os
+          import sys
+
+          threshold = float(os.environ.get('REGRESSION_THRESHOLD', '15')) / 100.0
+          baseline_path = '../baseline/benchmark_results.json'
+          current_path = 'benchmark_results.json'
+
+          # Load current results
+          with open(current_path) as f:
+              current = json.load(f)
+
+          # Check if baseline exists
+          if not os.path.exists(baseline_path):
+              print("No baseline found - this run will become the new baseline")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("has_regression=false\n")
+                  f.write("is_new_baseline=true\n")
+              sys.exit(0)
+
+          # Load baseline
+          with open(baseline_path) as f:
+              baseline = json.load(f)
+
+          # Compare results
+          regressions = []
+          improvements = []
+
+          def compare_category(category):
+              if category not in current or category not in baseline:
+                  return
+
+              baseline_by_name = {r['name']: r for r in baseline[category]}
+
+              for result in current[category]:
+                  name = result['name']
+                  if name not in baseline_by_name:
+                      continue
+
+                  base_mean = baseline_by_name[name]['mean_time_ms']
+                  curr_mean = result['mean_time_ms']
+
+                  if base_mean == 0:
+                      continue
+
+                  change = (curr_mean - base_mean) / base_mean
+
+                  if change > threshold:
+                      regressions.append({
+                          'name': name,
+                          'baseline': base_mean,
+                          'current': curr_mean,
+                          'change_pct': change * 100
+                      })
+                  elif change < -threshold:
+                      improvements.append({
+                          'name': name,
+                          'baseline': base_mean,
+                          'current': curr_mean,
+                          'change_pct': change * 100
+                      })
+
+          compare_category('primitives')
+          compare_category('streaming')
+
+          # Generate report
+          report = []
+          report.append("## Performance Comparison")
+          report.append("")
+          report.append(f"Regression threshold: {threshold * 100:.0f}%")
+          report.append("")
+
+          if regressions:
+              report.append("### ⚠️ Regressions Detected")
+              report.append("")
+              report.append("| Operation | Baseline | Current | Change |")
+              report.append("|-----------|----------|---------|--------|")
+              for r in regressions:
+                  report.append(f"| {r['name']} | {r['baseline']:.2f}ms | {r['current']:.2f}ms | +{r['change_pct']:.1f}% |")
+              report.append("")
+
+          if improvements:
+              report.append("### ✅ Improvements")
+              report.append("")
+              report.append("| Operation | Baseline | Current | Change |")
+              report.append("|-----------|----------|---------|--------|")
+              for r in improvements:
+                  report.append(f"| {r['name']} | {r['baseline']:.2f}ms | {r['current']:.2f}ms | {r['change_pct']:.1f}% |")
+              report.append("")
+
+          if not regressions and not improvements:
+              report.append("No significant performance changes detected.")
+
+          with open('regression_report.md', 'w') as f:
+              f.write('\n'.join(report))
+
+          # Set outputs
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"has_regression={'true' if regressions else 'false'}\n")
+              f.write(f"is_new_baseline=false\n")
+              f.write(f"regression_count={len(regressions)}\n")
+              f.write(f"improvement_count={len(improvements)}\n")
+
+          if regressions:
+              print(f"⚠️ Found {len(regressions)} performance regression(s)")
+              for r in regressions:
+                  print(f"  - {r['name']}: +{r['change_pct']:.1f}%")
+          else:
+              print("✅ No performance regressions detected")
+
+          EOF
 
       - name: Generate benchmark report
         id: report
@@ -104,7 +245,16 @@ jobs:
           path: |
             python/benchmark_results.json
             python/benchmark_report.md
+            python/regression_report.md
           retention-days: 90
+
+      - name: Upload as new baseline
+        if: github.event_name == 'release' || steps.regression.outputs.is_new_baseline == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: python/benchmark_results.json
+          retention-days: 365
 
       - name: Update documentation (optional)
         if: ${{ github.event.inputs.update_docs == 'true' || github.event_name == 'release' }}
@@ -123,4 +273,17 @@ jobs:
           echo "**Memory:** ${{ steps.sysinfo.outputs.memory }} GB" >> $GITHUB_STEP_SUMMARY
           echo "**macOS:** ${{ steps.sysinfo.outputs.macos }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Include regression report if it exists
+          if [ -f python/regression_report.md ]; then
+            cat python/regression_report.md >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
           cat python/benchmark_report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail on regression (optional)
+        if: steps.regression.outputs.has_regression == 'true' && github.event_name == 'pull_request'
+        run: |
+          echo "::error::Performance regression detected. See benchmark results for details."
+          exit 1

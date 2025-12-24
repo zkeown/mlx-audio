@@ -82,21 +82,50 @@ public struct WeightInfo: Sendable {
 /// // Unload when done
 /// loader.unload("embedding.weight")
 /// ```
-public class LazyWeightLoader {
+///
+/// ## Thread Safety
+///
+/// `LazyWeightLoader` is marked `@unchecked Sendable` and is fully thread-safe:
+///
+/// 1. **Lock-protected mutable state**: All mutable state (`cache`, `fileHandle`) is
+///    protected by an `NSLock`. Every public method acquires the lock before accessing
+///    or modifying shared state.
+///
+/// 2. **Immutable after init**: `url`, `weightInfo`, and `headerSize` are set during
+///    initialization and never modified afterward.
+///
+/// 3. **NSLock choice**: We use `NSLock` instead of an actor because:
+///    - Weight loading is often called from synchronous contexts
+///    - File I/O operations don't benefit from async suspension
+///    - The lock scope is minimal (only protecting cache access, not I/O)
+///
+/// 4. **Safe deinit**: The destructor acquires the lock before closing the file handle,
+///    ensuring no concurrent access during cleanup.
+///
+/// **Concurrent usage pattern**:
+/// ```swift
+/// // Safe to call from multiple threads simultaneously
+/// Task { let w1 = try loader.load("layer1.weight") }
+/// Task { let w2 = try loader.load("layer2.weight") }
+/// ```
+public final class LazyWeightLoader: @unchecked Sendable {
 
     /// URL of the safetensors file.
     public let url: URL
 
-    /// Parsed weight metadata.
+    /// Parsed weight metadata (immutable after init).
     public private(set) var weightInfo: [String: WeightInfo] = [:]
 
-    /// Header size in bytes.
+    /// Header size in bytes (immutable after init).
     private var headerSize: Int64 = 0
 
-    /// Cached loaded weights.
+    /// Lock for thread-safe access to mutable state.
+    private let lock = NSLock()
+
+    /// Cached loaded weights (protected by lock).
     private var cache: [String: MLXArray] = [:]
 
-    /// File handle for reading (kept open for efficiency).
+    /// File handle for reading (protected by lock).
     private var fileHandle: FileHandle?
 
     /// Initialize loader by parsing safetensors header.
@@ -109,6 +138,8 @@ public class LazyWeightLoader {
     }
 
     deinit {
+        lock.lock()
+        defer { lock.unlock() }
         try? fileHandle?.close()
     }
 
@@ -181,18 +212,29 @@ public class LazyWeightLoader {
     /// - Returns: Loaded MLXArray
     /// - Throws: WeightLoadError if weight not found
     public func load(_ key: String) throws -> MLXArray {
+        lock.lock()
+
         // Check cache first
         if let cached = cache[key] {
+            lock.unlock()
             return cached
         }
 
         guard let info = weightInfo[key] else {
+            lock.unlock()
             throw WeightLoadError.weightNotFound(key)
         }
 
-        let array = try loadWeight(info)
-        cache[key] = array
-        return array
+        // Load while holding lock to prevent concurrent loads of same key
+        do {
+            let array = try loadWeight(info)
+            cache[key] = array
+            lock.unlock()
+            return array
+        } catch {
+            lock.unlock()
+            throw error
+        }
     }
 
     /// Load multiple weights in batch.
@@ -279,11 +321,15 @@ public class LazyWeightLoader {
     ///
     /// - Parameter key: Weight key to unload
     public func unload(_ key: String) {
+        lock.lock()
+        defer { lock.unlock() }
         cache.removeValue(forKey: key)
     }
 
     /// Unload all weights from cache.
     public func unloadAll() {
+        lock.lock()
+        defer { lock.unlock() }
         cache.removeAll()
     }
 
@@ -291,6 +337,8 @@ public class LazyWeightLoader {
     ///
     /// - Parameter prefix: Key prefix to match
     public func unloadWithPrefix(_ prefix: String) {
+        lock.lock()
+        defer { lock.unlock() }
         let matchingKeys = cache.keys.filter { $0.hasPrefix(prefix) }
         for key in matchingKeys {
             cache.removeValue(forKey: key)
@@ -299,17 +347,23 @@ public class LazyWeightLoader {
 
     /// Check if a weight is currently cached.
     public func isCached(_ key: String) -> Bool {
-        cache[key] != nil
+        lock.lock()
+        defer { lock.unlock() }
+        return cache[key] != nil
     }
 
     /// Number of weights currently cached.
     public var cachedCount: Int {
-        cache.count
+        lock.lock()
+        defer { lock.unlock() }
+        return cache.count
     }
 
     /// Estimated memory of cached weights in bytes.
     public var cachedMemoryBytes: Int64 {
-        cache.values.reduce(0) { total, array in
+        lock.lock()
+        defer { lock.unlock() }
+        return cache.values.reduce(0) { total, array in
             let bytesPerElement: Int64
             switch array.dtype {
             case .float32: bytesPerElement = 4

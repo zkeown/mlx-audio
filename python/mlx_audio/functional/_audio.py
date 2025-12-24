@@ -113,6 +113,10 @@ def _load_from_file(
     return audio_array, sr
 
 
+# Maximum audio size in bytes (2GB default - prevents OOM on very large files)
+MAX_AUDIO_BYTES: int = 2 * 1024 * 1024 * 1024
+
+
 def _load_from_numpy(
     audio: "np.ndarray",
     sample_rate: int | None,
@@ -126,6 +130,16 @@ def _load_from_numpy(
     # Validate array
     if audio.size == 0:
         raise AudioLoadError("Audio array is empty")
+
+    # Check memory size to prevent OOM on very large files
+    if audio.nbytes > MAX_AUDIO_BYTES:
+        size_gb = audio.nbytes / (1024**3)
+        max_gb = MAX_AUDIO_BYTES / (1024**3)
+        raise AudioLoadError(
+            f"Audio array is too large ({size_gb:.2f}GB). "
+            f"Maximum supported size is {max_gb:.1f}GB. "
+            "Consider processing the audio in smaller chunks."
+        )
 
     if not np.isfinite(audio).all():
         raise AudioLoadError("Audio array contains NaN or Inf values")
@@ -157,6 +171,19 @@ def _load_from_mlx(
     # Validate array
     if audio.size == 0:
         raise AudioLoadError("Audio array is empty")
+
+    # Check memory size to prevent OOM on very large files
+    # Estimate bytes: size * bytes_per_element (default 4 for float32)
+    bytes_per_element = 4 if audio.dtype == mx.float32 else 2
+    estimated_bytes = audio.size * bytes_per_element
+    if estimated_bytes > MAX_AUDIO_BYTES:
+        size_gb = estimated_bytes / (1024**3)
+        max_gb = MAX_AUDIO_BYTES / (1024**3)
+        raise AudioLoadError(
+            f"Audio array is too large ({size_gb:.2f}GB). "
+            f"Maximum supported size is {max_gb:.1f}GB. "
+            "Consider processing the audio in smaller chunks."
+        )
 
     # Handle mono conversion
     if mono:
@@ -260,8 +287,6 @@ def validate_audio(
     Raises:
         AudioLoadError: If validation fails
     """
-    import mlx.core as mx
-
     if audio.size == 0:
         raise AudioLoadError("Audio array is empty")
 
@@ -293,4 +318,5 @@ __all__ = [
     "ensure_batch_dim",
     "ensure_mono_batch",
     "validate_audio",
+    "MAX_AUDIO_BYTES",
 ]

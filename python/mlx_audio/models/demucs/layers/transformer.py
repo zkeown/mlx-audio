@@ -184,12 +184,14 @@ class MultiheadAttention(nn.Module):
         k = k.reshape(B, S, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
         v = v.reshape(B, S, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
 
-        # Attention
-        attn = (q @ k.transpose(0, 1, 3, 2)) * self.scale
-        attn = mx.softmax(attn, axis=-1)
-
-        # Output
-        out = attn @ v
+        # Use Flash Attention if available (O(T) memory vs O(T²))
+        if hasattr(mx.fast, "scaled_dot_product_attention"):
+            out = mx.fast.scaled_dot_product_attention(q, k, v, scale=self.scale)
+        else:
+            # Fallback: standard O(T²) attention
+            attn = (q @ k.transpose(0, 1, 3, 2)) * self.scale
+            attn = mx.softmax(attn, axis=-1)
+            out = attn @ v
         out = out.transpose(0, 2, 1, 3).reshape(B, T, self.embed_dim)
 
         return self.out_proj(out)

@@ -285,9 +285,11 @@ public class MusicGenKVCache {
         let startPos = _length
         let endPos = startPos + tNew
 
-        guard endPos <= maxLength else {
-            fatalError("Sequence length \(endPos) exceeds maxLength \(maxLength)")
-        }
+        precondition(
+            endPos <= maxLength,
+            "MusicGen KVCache overflow: sequence length \(endPos) exceeds maxLength \(maxLength). " +
+            "Reset the cache or create one with larger maxLength."
+        )
 
         // Use at[].add() for O(1) update
         selfAttnKeys[layer] = selfAttnKeys[layer].at[0..., 0..., startPos..<endPos, 0...].add(

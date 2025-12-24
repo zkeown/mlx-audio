@@ -28,6 +28,29 @@ import MLX
 /// // After processing all layers:
 /// cache.step()
 /// ```
+///
+/// ## Thread Safety
+///
+/// `WhisperKVCache` is marked `@unchecked Sendable` with the following constraints:
+///
+/// **Safe usage patterns:**
+/// - Single-threaded decoding (typical use case)
+/// - Sequential layer updates within a single decode step
+/// - Reset between independent sequences
+///
+/// **Why @unchecked Sendable:**
+/// 1. **MLXArray operations are GPU-serialized**: All array operations (`at[].add()`,
+///    slicing) are dispatched to MLX's GPU command queue and execute in-order.
+/// 2. **Intended single-writer pattern**: The cache is designed for sequential
+///    autoregressive decoding where one thread updates layers in order.
+/// 3. **Immutable configuration**: `maxLength`, `nLayers`, `hiddenDim`, `batchSize`
+///    are set at init and never modified.
+///
+/// **Not recommended:**
+/// - Concurrent `update()` calls to the same layer from multiple threads
+/// - Calling `step()` while `update()` is in progress
+///
+/// For concurrent decoding of multiple sequences, create separate cache instances.
 public class WhisperKVCache: @unchecked Sendable {
 
     /// Maximum sequence length (power of 2 for efficient indexing).
@@ -129,9 +152,11 @@ public class WhisperKVCache: @unchecked Sendable {
         let startPos = _length
         let endPos = startPos + tNew
 
-        guard endPos <= maxLength else {
-            fatalError("Sequence length \(endPos) exceeds maxLength \(maxLength)")
-        }
+        precondition(
+            endPos <= maxLength,
+            "KVCache overflow: sequence length \(endPos) exceeds maxLength \(maxLength). " +
+            "Reset the cache or create one with larger maxLength."
+        )
 
         // Write new K/V at current position using at[].add() pattern.
         // This avoids full tensor copies (O(1) instead of O(n)).

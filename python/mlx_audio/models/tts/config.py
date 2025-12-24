@@ -83,7 +83,6 @@ class ParlerTTSConfig:
 
     # Position embedding settings
     max_position_embeddings: int = 4096
-    rope_theta: float = 10000.0
 
     # Generation settings
     max_duration: float = 30.0  # seconds

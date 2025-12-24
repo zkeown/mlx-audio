@@ -482,4 +482,46 @@ NB_MODULE(_ext, m) {
         mlx.core.array
             Spectral flatness for each frame.
         )");
+
+    m.def(
+        "spectral_contrast",
+        &mlx_audio::spectral_contrast_wrapper,
+        "S"_a,
+        "frequencies"_a,
+        "fmin"_a = 200.0f,
+        "n_bands"_a = 6,
+        "quantile"_a = 0.02f,
+        "linear"_a = false,
+        "stream"_a = nb::none(),
+        R"(
+        Compute spectral contrast.
+
+        Spectral contrast measures the difference between peaks and valleys
+        in each frequency band. It's useful for music classification.
+
+        Parameters
+        ----------
+        S : mlx.core.array
+            Magnitude spectrogram of shape (freq_bins, n_frames) or
+            (batch, freq_bins, n_frames).
+        frequencies : mlx.core.array
+            Frequency values for each bin, shape (freq_bins,).
+        fmin : float, optional
+            Minimum frequency for band computation. Default: 200.0.
+        n_bands : int, optional
+            Number of octave bands. Default: 6.
+        quantile : float, optional
+            Quantile for peak/valley estimation. Default: 0.02.
+        linear : bool, optional
+            If True, return linear contrast. If False, return log contrast.
+            Default: False.
+        stream : mlx.core.Stream, optional
+            Stream for computation.
+
+        Returns
+        -------
+        mlx.core.array
+            Spectral contrast for each band and frame.
+            Shape: (n_bands + 1, n_frames) or (batch, n_bands + 1, n_frames).
+        )");
 }

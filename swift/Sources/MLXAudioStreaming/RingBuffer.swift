@@ -67,14 +67,25 @@ public final class AudioRingBuffer: @unchecked Sendable {
 
     // MARK: - Initialization
 
+    /// Maximum buffer capacity (1 million frames = ~23 seconds at 44.1kHz stereo).
+    /// This prevents accidental OOM from unreasonable capacity requests.
+    public static let maxCapacity: Int = 1_000_000
+
     /// Creates a new audio ring buffer.
     ///
     /// - Parameters:
     ///   - capacity: Buffer capacity in frames. Will be rounded up to power of 2.
+    ///              Maximum capacity is 1 million frames.
     ///   - channels: Number of audio channels (default: 2 for stereo).
+    /// - Precondition: channels must be positive, capacity must not exceed maxCapacity.
     public init(capacity: Int, channels: Int = 2) {
+        precondition(channels > 0, "Channel count must be positive")
+        precondition(capacity > 0, "Capacity must be positive")
+        precondition(capacity <= Self.maxCapacity,
+                     "Capacity \(capacity) exceeds maximum \(Self.maxCapacity)")
+
         // Round up to power of 2 for fast modulo
-        let powerOf2Capacity = Self.nextPowerOf2(capacity)
+        let powerOf2Capacity = Self.nextPowerOf2(min(capacity, Self.maxCapacity))
 
         self.capacity = powerOf2Capacity
         self.channels = channels

@@ -44,14 +44,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('python/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
       - name: Install dependencies
         run: |
           cd python
           pip install -e ".[dev,test]"
-      - name: Run fast tests
+      - name: Run fast tests (parallel)
         run: |
           cd python
-          pytest tests -m "not slow" --timeout=300
+          # Use pytest-xdist for parallel test execution
+          # -n auto: use as many processes as CPUs
+          # --dist loadscope: group tests by module for better isolation
+          pytest tests -m "not slow" --timeout=300 -n auto --dist loadscope
 
   test-full:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -61,14 +73,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('python/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
       - name: Install dependencies
         run: |
           cd python
           pip install -e ".[dev,test]"
-      - name: Run all tests
+      - name: Run all tests (parallel)
         run: |
           cd python
-          pytest tests
+          # Use pytest-xdist for parallel test execution
+          pytest tests -n auto --dist loadscope --junitxml=test-results.xml
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-full
+          path: python/test-results.xml
+          retention-days: 30
 
   coverage:
     runs-on: macos-latest
@@ -77,6 +106,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('python/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
       - name: Install dependencies
         run: |
           cd python

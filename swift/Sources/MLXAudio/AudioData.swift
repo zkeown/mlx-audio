@@ -18,6 +18,19 @@ import Foundation
 /// let mono = audio.toMono()
 /// let resampled = audio.resample(to: 16000)
 /// ```
+///
+/// ## Thread Safety
+///
+/// `AudioData` is marked `@unchecked Sendable` because:
+/// 1. **Immutable properties**: Both `array` and `sampleRate` are `let` constants
+/// 2. **MLXArray thread safety**: MLXArray operations are serialized through MLX's
+///    GPU command queue. All array operations are dispatched to the GPU and execute
+///    in-order, making concurrent access from multiple threads safe.
+/// 3. **Value semantics**: All methods return new `AudioData` instances rather than
+///    mutating self, ensuring no shared mutable state.
+///
+/// The `@unchecked` annotation is required because MLXArray is marked `@preconcurrency`
+/// in the MLX-Swift bindings, but the underlying implementation is thread-safe.
 public struct AudioData: @unchecked Sendable {
     /// The audio samples as an MLX array.
     ///

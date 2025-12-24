@@ -7,6 +7,12 @@ import AVFoundation
 import Foundation
 @preconcurrency import MLX
 
+// MARK: - Safety Limits
+
+/// Maximum samples per audio buffer allocation to prevent OOM.
+/// This allows up to ~10 seconds of 8-channel 192kHz audio (15M samples).
+private let kMaxSamplesPerAllocation: Int = 15_000_000
+
 // MARK: - Microphone Source Configuration
 
 /// Configuration for microphone capture.
@@ -221,7 +227,12 @@ public actor MicrophoneSource: @preconcurrency AudioSource {
             } else {
                 // Multi-channel: interleave
                 // This allocates, but it's small and infrequent enough to be acceptable
-                var interleaved = [Float](repeating: 0, count: frameCount * channelCount)
+                let allocationSize = frameCount * channelCount
+                guard allocationSize <= kMaxSamplesPerAllocation else {
+                    // Skip this buffer if it's unreasonably large (indicates corruption)
+                    return
+                }
+                var interleaved = [Float](repeating: 0, count: allocationSize)
                 for frame in 0..<frameCount {
                     for channel in 0..<min(channelCount, channels) {
                         interleaved[frame * channels + channel] = floatData[channel][frame]
@@ -260,9 +271,17 @@ public actor MicrophoneSource: @preconcurrency AudioSource {
 
     /// Read samples from the microphone buffer.
     ///
+    /// This method supports cooperative cancellation - if the current Task is
+    /// cancelled, it will throw `CancellationError` on the next call.
+    ///
     /// - Parameter count: Number of frames to read
     /// - Returns: Audio samples as MLXArray [channels, samples], or nil if not enough data
+    /// - Throws: `MicrophoneError.notRunning` if microphone is not active,
+    ///           `CancellationError` if the task was cancelled
     public func read(count: Int) async throws -> MLXArray? {
+        // Check for task cancellation before processing
+        try Task.checkCancellation()
+
         guard _isActive else {
             throw MicrophoneError.notRunning
         }
@@ -298,8 +317,16 @@ public actor MicrophoneSource: @preconcurrency AudioSource {
 
     /// Read all available samples from the buffer.
     ///
+    /// This method supports cooperative cancellation - if the current Task is
+    /// cancelled, it will throw `CancellationError` on the next call.
+    ///
     /// - Returns: Available audio samples as MLXArray, or empty array if none
+    /// - Throws: `MicrophoneError.notRunning` if microphone is not active,
+    ///           `CancellationError` if the task was cancelled
     public func readAvailable() async throws -> MLXArray {
+        // Check for task cancellation before processing
+        try Task.checkCancellation()
+
         guard _isActive else {
             throw MicrophoneError.notRunning
         }

@@ -60,7 +60,7 @@ class TestCLAPParity:
 
         # HuggingFace embedding
         inputs = hf_processor(
-            audio=audio,
+            audios=audio,
             return_tensors="pt",
             sampling_rate=48000,
         )
@@ -128,7 +128,7 @@ class TestCLAPParity:
 
         # HuggingFace
         audio_inputs = hf_processor(
-            audio=audio,
+            audios=audio,
             return_tensors="pt",
             sampling_rate=48000,
         )

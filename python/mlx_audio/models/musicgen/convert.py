@@ -32,6 +32,8 @@ class MusicGenConverter(WeightConverter):
 
     SKIP_PATTERNS = [
         r"^text_encoder\.",  # T5 used separately
+        r"^audio_encoder\.",  # EnCodec used separately
+        r"embed_positions\.weights",  # Positional embeddings (built dynamically)
         r"num_batches_tracked",
         r"running_mean",
         r"running_var",
@@ -154,8 +156,17 @@ def download_and_convert(
     mlx_path = output_dir / "model.safetensors"
 
     if not mlx_path.exists():
+        from mlx_audio.exceptions import WeightConversionError
+
         print(f"Downloading {model_name} from HuggingFace...")
-        hf_dir = snapshot_download(model_repos[model_name])
+        hf_dir = Path(snapshot_download(model_repos[model_name]))
+
+        # Find the checkpoint file - prefer safetensors, fallback to .bin
+        checkpoint_file = hf_dir / "model.safetensors"
+        if not checkpoint_file.exists():
+            checkpoint_file = hf_dir / "pytorch_model.bin"
+        if not checkpoint_file.exists():
+            raise WeightConversionError(f"No checkpoint found in {hf_dir}")
 
         # Determine config based on model
         configs = {
@@ -201,7 +212,7 @@ def download_and_convert(
             },
         }
 
-        convert_musicgen_weights(hf_dir, mlx_path, config=configs[model_name])
+        convert_musicgen_weights(checkpoint_file, mlx_path, config=configs[model_name])
 
     return output_dir
 

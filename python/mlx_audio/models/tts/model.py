@@ -10,7 +10,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_audio.models.tts.config import ParlerTTSConfig
-from mlx_audio.models.tts.layers.embeddings import CodebookEmbeddings
+from mlx_audio.models.tts.layers.embeddings import CodebookEmbeddings, sinusoidal_embeddings
 from mlx_audio.models.tts.layers.transformer import ParlerTTSDecoder
 from mlx_audio.models.tts.layers.lm_head import ParlerTTSLMHead, DelayPatternScheduler
 
@@ -151,7 +151,7 @@ class ParlerTTS(nn.Module):
             attention_mask: Causal self-attention mask
             encoder_attention_mask: Cross-attention mask
             kv_cache: Cached key/values for incremental decoding
-            position_offset: Position offset for RoPE
+            position_offset: Position offset for cached positions
 
         Returns:
             Tuple of:
@@ -161,9 +161,16 @@ class ParlerTTS(nn.Module):
         # Compute embeddings from codebook tokens
         hidden_states = self.embeddings(input_ids)
 
+        # Add sinusoidal positional embeddings (applied once, matching PyTorch Parler-TTS)
+        seq_length = input_ids.shape[-1]
+        total_seq_length = seq_length + position_offset
+        pos_emb = sinusoidal_embeddings(total_seq_length, self.config.hidden_size)
+        # Slice to current positions when using KV cache
+        pos_emb = pos_emb[position_offset:total_seq_length]
+        hidden_states = hidden_states + pos_emb
+
         # Create causal mask if not provided
         if attention_mask is None:
-            seq_length = input_ids.shape[-1]
             attention_mask = self.decoder.create_causal_mask(seq_length, position_offset)
 
         # Run decoder

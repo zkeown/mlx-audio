@@ -90,8 +90,8 @@ class MusicGenConfig:
 
     @property
     def vocab_size(self) -> int:
-        """Total vocabulary size including special tokens."""
-        return self.codebook_size + 1  # +1 for pad/bos/eos
+        """Total vocabulary size (matches HuggingFace MusicGen)."""
+        return self.codebook_size  # HF uses codebook_size directly
 
     @classmethod
     def small(cls) -> "MusicGenConfig":

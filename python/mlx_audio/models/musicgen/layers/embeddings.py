@@ -94,7 +94,7 @@ class CodebookEmbeddings(nn.Module):
         self.hidden_size = config.hidden_size
 
         # Separate embedding table for each codebook
-        # +1 for special tokens (pad/bos/eos)
+        # HuggingFace uses codebook_size + 1 for embeddings (includes pad token)
         vocab_size = config.codebook_size + 1
         self.embeddings = [
             nn.Embedding(vocab_size, config.hidden_size)

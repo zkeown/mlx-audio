@@ -1,99 +1,186 @@
 """Weight conversion utilities for EnCodec.
 
-Converts PyTorch EnCodec weights to MLX safetensors format.
+Converts HuggingFace EnCodec weights to MLX safetensors format.
+Properly handles:
+1. Weight normalization (g, v -> weight)
+2. Layer index mapping
+3. LSTM weight format differences
+4. ConvTranspose1d transposition
 """
 
 from __future__ import annotations
 
-import re
+import json
 from pathlib import Path
 from typing import Any
 
 import mlx.core as mx
 import numpy as np
 
-from mlx_audio.models.base.weight_converter import WeightConverter
 
+def weight_norm_to_weight(
+    weight_g: np.ndarray, weight_v: np.ndarray
+) -> np.ndarray:
+    """Convert weight normalization parameters to actual weight.
 
-class EnCodecConverter(WeightConverter):
-    """Converter for EnCodec PyTorch weights to MLX format.
-
-    Handles:
-    - Skipping BatchNorm running statistics
-    - Transposing conv kernels from PyTorch to MLX format
-    - Key mapping for encoder/decoder/quantizer modules
-
-    Example:
-        >>> converter = EnCodecConverter()
-        >>> converter.convert("encodec.pt", "encodec/model.safetensors")
-    """
-
-    model_name = "encodec"
-
-    SKIP_PATTERNS = [
-        r"num_batches_tracked",
-        r"running_mean",
-        r"running_var",
-    ]
-
-    KEY_MAPPINGS = [
-        # Encoder mappings
-        (r"^encoder\.", "encoder."),
-        # Decoder mappings
-        (r"^decoder\.", "decoder."),
-        # Quantizer mappings
-        (r"^quantizer\.vq\.", "quantizer.layers."),
-        (r"^quantizer\.codebook\.", "quantizer.layers."),
-    ]
-
-    def map_key(self, pt_key: str) -> str | None:
-        """Map PyTorch EnCodec key to MLX key."""
-        for pattern in self.SKIP_PATTERNS:
-            if re.search(pattern, pt_key):
-                return None
-
-        mlx_key = pt_key
-        for pattern, replacement in self.KEY_MAPPINGS:
-            mlx_key = re.sub(pattern, replacement, mlx_key)
-
-        return mlx_key
-
-    def transform_weight(self, key: str, np_array: np.ndarray) -> np.ndarray:
-        """Transform weight array for MLX format."""
-        shape = np_array.shape
-
-        # Conv1d: PyTorch [out, in, K] -> MLX [out, K, in]
-        if len(shape) == 3 and key.endswith('.weight'):
-            if 'conv' in key.lower():
-                np_array = np.transpose(np_array, (0, 2, 1))
-
-        # ConvTranspose1d: PyTorch [in, out, K] -> MLX [out, K, in]
-        if len(shape) == 3 and 'transpose' in key.lower():
-            np_array = np.transpose(np_array, (1, 2, 0))
-
-        return np_array
-
-
-# Module-level converter instance
-_converter = EnCodecConverter()
-
-
-def convert_encodec_weights(
-    pytorch_path: str | Path,
-    output_path: str | Path,
-    config: dict[str, Any] | None = None,
-) -> dict[str, mx.array]:
-    """Convert EnCodec PyTorch weights to MLX format.
+    W = g * (v / ||v||)
 
     Args:
-        pytorch_path: Path to PyTorch checkpoint or HuggingFace model directory
-        output_path: Output path for .safetensors file
-        config: Optional model configuration to save alongside weights
+        weight_g: Magnitude [out_channels, 1, 1]
+        weight_v: Direction [out_channels, in_channels, kernel_size]
+
+    Returns:
+        Weight tensor with same shape as weight_v
+    """
+    # Compute norm of v along dims 1 and 2 (in_channels, kernel_size)
+    v_flat = weight_v.reshape(weight_v.shape[0], -1)
+    v_norm = np.linalg.norm(v_flat, axis=1, keepdims=True)
+
+    # Reshape norm to match weight_g shape for broadcasting
+    v_norm = v_norm.reshape(weight_g.shape)
+
+    # W = g * (v / ||v||)
+    weight = (weight_g / (v_norm + 1e-12)) * weight_v
+
+    return weight
+
+
+def convert_hf_to_mlx(hf_model) -> dict[str, mx.array]:
+    """Convert HuggingFace EnCodec model to MLX weights.
+
+    Args:
+        hf_model: HuggingFace EncodecModel
 
     Returns:
         Dictionary of MLX arrays
     """
-    return _converter.convert(pytorch_path, output_path, config)
+    mlx_weights = {}
+
+    # Get state dict
+    state_dict = {}
+    for name, param in hf_model.named_parameters():
+        state_dict[name] = param.detach().cpu().numpy()
+    for name, buffer in hf_model.named_buffers():
+        state_dict[name] = buffer.detach().cpu().numpy()
+
+    # Process each weight
+    processed = set()
+
+    # Find all weight-normalized convolutions
+    weight_norm_bases = set()
+    for key in state_dict:
+        if "parametrizations.weight.original0" in key:
+            base = key.replace(".parametrizations.weight.original0", "")
+            weight_norm_bases.add(base)
+
+    # Convert weight-normalized convolutions
+    for base in weight_norm_bases:
+        g_key = f"{base}.parametrizations.weight.original0"
+        v_key = f"{base}.parametrizations.weight.original1"
+
+        weight_g = state_dict[g_key]
+        weight_v = state_dict[v_key]
+
+        # Reconstruct weight
+        weight = weight_norm_to_weight(weight_g, weight_v)
+
+        # Check if this is a decoder upsample layer (transposed conv)
+        # Decoder layers 3, 6, 9, 12 are the transposed convs
+        is_transposed_conv = "decoder.layers." in base and any(
+            f"decoder.layers.{idx}.conv" in base for idx in [3, 6, 9, 12]
+        )
+
+        if is_transposed_conv:
+            # PyTorch ConvTranspose1d: [in_channels, out_channels, K]
+            # MLX ConvTranspose1d: [out_channels, K, in_channels]
+            weight = np.transpose(weight, (1, 2, 0))
+        else:
+            # PyTorch Conv1d: [out_channels, in_channels, K]
+            # MLX Conv1d: [out_channels, K, in_channels]
+            weight = np.transpose(weight, (0, 2, 1))
+
+        # Map key to MLX format
+        mlx_key = f"{base}.weight"
+        mlx_weights[mlx_key] = mx.array(weight.astype(np.float32))
+
+        processed.add(g_key)
+        processed.add(v_key)
+
+        # Also get bias if present
+        bias_key = f"{base}.bias"
+        if bias_key in state_dict:
+            mlx_weights[f"{base}.bias"] = mx.array(
+                state_dict[bias_key].astype(np.float32)
+            )
+            processed.add(bias_key)
+
+    # Process LSTM weights
+    # HF uses: lstm.weight_ih_l0, lstm.weight_hh_l0, lstm.bias_ih_l0, etc.
+    # MLX uses: lstm.0.Wx, lstm.0.Wh, lstm.0.bias
+    lstm_keys_processed = set()
+    for key in state_dict:
+        if key in processed or key in lstm_keys_processed:
+            continue
+
+        if "lstm" not in key:
+            continue
+
+        value = state_dict[key]
+
+        # Handle both layer 0 and layer 1
+        for layer_idx in [0, 1]:
+            suffix = f"_l{layer_idx}"
+            if suffix not in key:
+                continue
+
+            # Map to MLX format with layers list
+            if f"weight_ih{suffix}" in key:
+                # Input-hidden weights: weight_ih_l0 -> lstm.0.Wx
+                mlx_key = key.replace(
+                    f".lstm.weight_ih{suffix}",
+                    f".lstm.{layer_idx}.Wx"
+                )
+                mlx_weights[mlx_key] = mx.array(value.astype(np.float32))
+                lstm_keys_processed.add(key)
+            elif f"weight_hh{suffix}" in key:
+                # Hidden-hidden weights: weight_hh_l0 -> lstm.0.Wh
+                mlx_key = key.replace(
+                    f".lstm.weight_hh{suffix}",
+                    f".lstm.{layer_idx}.Wh"
+                )
+                mlx_weights[mlx_key] = mx.array(value.astype(np.float32))
+                lstm_keys_processed.add(key)
+            elif f"bias_ih{suffix}" in key:
+                # Input bias: bias_ih_l0 -> lstm.0.bias
+                # HF has separate bias_ih and bias_hh, we need to add them
+                bias_hh_key = key.replace("bias_ih", "bias_hh")
+                bias_ih = value
+                bias_hh = state_dict.get(bias_hh_key, np.zeros_like(value))
+                # MLX LSTM uses combined bias
+                combined_bias = bias_ih + bias_hh
+                mlx_key = key.replace(
+                    f".lstm.bias_ih{suffix}",
+                    f".lstm.{layer_idx}.bias"
+                )
+                mlx_weights[mlx_key] = mx.array(
+                    combined_bias.astype(np.float32)
+                )
+                lstm_keys_processed.add(key)
+                lstm_keys_processed.add(bias_hh_key)
+
+    processed.update(lstm_keys_processed)
+
+    # Process quantizer codebook weights
+    for key in state_dict:
+        if key in processed:
+            continue
+
+        if "quantizer" in key and "codebook" in key:
+            value = state_dict[key]
+            mlx_weights[key] = mx.array(value.astype(np.float32))
+            processed.add(key)
+
+    return mlx_weights
 
 
 def download_and_convert(
@@ -110,12 +197,12 @@ def download_and_convert(
         Path to converted model directory
     """
     try:
-        from huggingface_hub import snapshot_download
+        from transformers import EncodecModel
     except ImportError:
         from mlx_audio.exceptions import WeightConversionError
         raise WeightConversionError(
-            "huggingface_hub is required for downloading. "
-            "Install with: pip install huggingface-hub"
+            "transformers is required for downloading. "
+            "Install with: pip install transformers"
         )
 
     model_repos = {
@@ -136,43 +223,102 @@ def download_and_convert(
     output_dir = Path(output_dir) / model_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    mlx_path = output_dir / "model.safetensors"
+    weights_path = output_dir / "model.safetensors"
 
-    if not mlx_path.exists():
-        print(f"Downloading {model_name} from HuggingFace...")
-        hf_dir = snapshot_download(model_repos[model_name])
+    if not weights_path.exists():
+        print(f"Loading {model_name} from HuggingFace...")
+        hf_model = EncodecModel.from_pretrained(model_repos[model_name])
 
-        # Determine config based on model
-        configs = {
-            "encodec_24khz": {
-                "sample_rate": 24000,
-                "channels": 1,
-                "num_codebooks": 8,
-                "codebook_size": 1024,
-                "codebook_dim": 128,
-                "ratios": [8, 5, 4, 2],
-            },
-            "encodec_32khz": {
-                "sample_rate": 32000,
-                "channels": 1,
-                "num_codebooks": 4,
-                "codebook_size": 2048,
-                "codebook_dim": 128,
-                "ratios": [8, 5, 4, 4],
-            },
-            "encodec_48khz": {
-                "sample_rate": 48000,
-                "channels": 2,
-                "num_codebooks": 8,
-                "codebook_size": 1024,
-                "codebook_dim": 128,
-                "ratios": [8, 5, 4, 2],
-            },
+        print("Converting weights...")
+        mlx_weights = convert_hf_to_mlx(hf_model)
+        print(f"  Converted {len(mlx_weights)} parameters")
+
+        print(f"Saving to {weights_path}...")
+        mx.save_safetensors(str(weights_path), mlx_weights)
+
+        # Save config - extract all values from HF config
+        hf_config = hf_model.config
+        config = {
+            "sample_rate": hf_config.sampling_rate,
+            "channels": hf_config.audio_channels,
+            "num_filters": hf_config.num_filters,
+            "num_codebooks": hf_config.num_quantizers,
+            "codebook_size": hf_config.codebook_size,
+            "codebook_dim": hf_config.codebook_dim,
+            "ratios": hf_config.upsampling_ratios,
+            "kernel_size": hf_config.kernel_size,
+            "residual_kernel_size": hf_config.residual_kernel_size,
+            "num_residual_layers": hf_config.num_residual_layers,
+            "dilation_base": hf_config.dilation_growth_rate,
+            "lstm_layers": hf_config.num_lstm_layers,
+            "last_kernel_size": hf_config.last_kernel_size,
+            "causal": hf_config.use_causal_conv,
         }
 
-        convert_encodec_weights(hf_dir, mlx_path, config=configs[model_name])
+        config_path = output_dir / "config.json"
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        print(f"Done! Model saved to {output_dir}")
 
     return output_dir
+
+
+# Keep legacy function for backwards compatibility
+def convert_encodec_weights(
+    pytorch_path: str | Path,
+    output_path: str | Path,
+    config: dict[str, Any] | None = None,
+) -> dict[str, mx.array]:
+    """Convert EnCodec PyTorch weights to MLX format.
+
+    DEPRECATED: Use download_and_convert() instead, which properly handles
+    weight normalization from HuggingFace models.
+
+    Args:
+        pytorch_path: Path to PyTorch checkpoint
+        output_path: Output path for .safetensors file
+        config: Optional model configuration to save alongside weights
+
+    Returns:
+        Dictionary of MLX arrays
+    """
+    import warnings
+    warnings.warn(
+        "convert_encodec_weights is deprecated. "
+        "Use download_and_convert() for proper HuggingFace weight conversion.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
+    from mlx_audio.models.base.weight_converter import WeightConverter
+    import re
+
+    class LegacyEnCodecConverter(WeightConverter):
+        model_name = "encodec"
+        SKIP_PATTERNS = [
+            r"num_batches_tracked",
+            r"running_mean",
+            r"running_var",
+        ]
+
+        def map_key(self, pt_key: str) -> str | None:
+            for pattern in self.SKIP_PATTERNS:
+                if re.search(pattern, pt_key):
+                    return None
+            return pt_key
+
+        def transform_weight(
+            self, key: str, np_array: np.ndarray
+        ) -> np.ndarray:
+            shape = np_array.shape
+            if len(shape) == 3 and key.endswith('.weight'):
+                if 'conv' in key.lower():
+                    np_array = np.transpose(np_array, (0, 2, 1))
+            return np_array
+
+    converter = LegacyEnCodecConverter()
+    return converter.convert(pytorch_path, output_path, config)
 
 
 def main():
@@ -183,33 +329,20 @@ def main():
         description="Convert EnCodec PyTorch weights to MLX format"
     )
     parser.add_argument(
-        "input",
-        nargs="?",
-        help="Path to PyTorch checkpoint or HuggingFace model directory",
+        "-m", "--model",
+        default="encodec_32khz",
+        choices=["encodec_24khz", "encodec_32khz", "encodec_48khz"],
+        help="Model to download and convert",
     )
     parser.add_argument(
         "-o", "--output",
-        help="Output path for MLX weights (.safetensors)",
-    )
-    parser.add_argument(
-        "-m", "--model",
-        choices=["encodec_24khz", "encodec_32khz", "encodec_48khz"],
-        help="Download and convert a pretrained model",
+        help="Output directory",
     )
 
     args = parser.parse_args()
 
-    if args.model:
-        output_dir = download_and_convert(args.model)
-        print(f"\nModel saved to: {output_dir}")
-    elif args.input:
-        if args.output is None:
-            output = Path(args.input).with_suffix(".safetensors")
-        else:
-            output = Path(args.output)
-        convert_encodec_weights(args.input, output)
-    else:
-        parser.print_help()
+    output_dir = download_and_convert(args.model, args.output)
+    print(f"\nModel saved to: {output_dir}")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,19 @@ import Foundation
 import MLX
 import MLXNN
 
+/// Errors that can occur during quantization operations.
+public enum QuantizationError: Error, LocalizedError {
+    /// The specified bit width is not supported.
+    case unsupportedBitWidth(Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedBitWidth(let bits):
+            return "Unsupported quantization bit width: \(bits). Supported values are 4 and 8."
+        }
+    }
+}
+
 /// Linear layer with quantized weights.
 ///
 /// Weights are stored in a packed format with per-group scales and zero-points.
@@ -108,14 +121,16 @@ public class QuantizedLinear: Module, @unchecked Sendable {
     }
 
     /// Dequantize weights to full precision.
-    public func dequantize() -> MLXArray {
+    ///
+    /// - Throws: `QuantizationError.unsupportedBitWidth` if bit width is not 4 or 8.
+    public func dequantize() throws -> MLXArray {
         switch config.bits {
         case 4:
             return dequantize4Bit()
         case 8:
             return dequantize8Bit()
         default:
-            fatalError("Unsupported bit width: \(config.bits)")
+            throw QuantizationError.unsupportedBitWidth(config.bits)
         }
     }
 
@@ -205,8 +220,9 @@ public class QuantizedLinear: Module, @unchecked Sendable {
     ///
     /// - Parameter weight: Full precision weights [outputDim, inputDim]
     /// - Returns: Self with quantized weights set
+    /// - Throws: `QuantizationError.unsupportedBitWidth` if bit width is not 4 or 8.
     @discardableResult
-    public func quantize(from weight: MLXArray) -> Self {
+    public func quantize(from weight: MLXArray) throws -> Self {
         precondition(weight.shape == [outputDim, inputDim],
                      "Weight shape mismatch: expected [\(outputDim), \(inputDim)], got \(weight.shape)")
 
@@ -216,7 +232,7 @@ public class QuantizedLinear: Module, @unchecked Sendable {
         case 8:
             quantize8Bit(weight)
         default:
-            fatalError("Unsupported bit width: \(config.bits)")
+            throw QuantizationError.unsupportedBitWidth(config.bits)
         }
 
         return self
@@ -313,6 +329,8 @@ public class QuantizedLinear: Module, @unchecked Sendable {
     // MARK: - Utility
 
     /// Calculate packed dimension for quantized weights.
+    ///
+    /// - Precondition: `bits` must be 4 or 8.
     static func packedDimension(inputDim: Int, bits: Int) -> Int {
         switch bits {
         case 4:
@@ -322,7 +340,7 @@ public class QuantizedLinear: Module, @unchecked Sendable {
             // One 8-bit value per uint8
             return inputDim
         default:
-            fatalError("Unsupported bit width: \(bits)")
+            preconditionFailure("Unsupported bit width: \(bits). Use 4 or 8.")
         }
     }
 

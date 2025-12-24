@@ -126,18 +126,20 @@ class MultiHeadAttention(nn.Module):
             key = mx.repeat(key, self.num_heads_per_kv, axis=1)
             value = mx.repeat(value, self.num_heads_per_kv, axis=1)
 
-        # Compute attention scores
-        attn_weights = (query @ key.transpose(0, 1, 3, 2)) * self.scale
+        # Use Flash Attention if available (O(T) memory vs O(T²))
+        if hasattr(mx.fast, "scaled_dot_product_attention"):
+            attn_output = mx.fast.scaled_dot_product_attention(
+                query, key, value, scale=self.scale, mask=attention_mask
+            )
+        else:
+            # Fallback: standard O(T²) attention
+            attn_weights = (query @ key.transpose(0, 1, 3, 2)) * self.scale
 
-        # Apply attention mask
-        if attention_mask is not None:
-            attn_weights = attn_weights + attention_mask
+            if attention_mask is not None:
+                attn_weights = attn_weights + attention_mask
 
-        # Softmax
-        attn_weights = mx.softmax(attn_weights, axis=-1)
-
-        # Apply to values
-        attn_output = attn_weights @ value
+            attn_weights = mx.softmax(attn_weights, axis=-1)
+            attn_output = attn_weights @ value
 
         # Reshape back
         attn_output = attn_output.transpose(0, 2, 1, 3)
@@ -154,9 +156,11 @@ class ParlerTTSDecoderBlock(nn.Module):
 
     Structure:
         - LayerNorm -> Self-Attention -> Residual
-        - LayerNorm -> Cross-Attention (prompt) -> Residual
-        - LayerNorm -> Cross-Attention (description) -> Residual
-        - LayerNorm -> FFN -> Residual
+        - LayerNorm -> Cross-Attention -> Residual
+        - LayerNorm -> FFN (GELU) -> Residual
+
+    Note: Position embeddings are applied externally (sinusoidal embeddings
+    added to inputs before the decoder), matching the PyTorch Parler-TTS.
     """
 
     def __init__(self, config: "ParlerTTSConfig", layer_idx: int = 0):
@@ -176,10 +180,8 @@ class ParlerTTSDecoderBlock(nn.Module):
             config.num_attention_heads,
             num_kv_heads=config.num_key_value_heads,
             dropout=config.attention_dropout,
-            rope_theta=config.rope_theta,
-            max_position_embeddings=config.max_position_embeddings,
         )
-        self.self_attn_layer_norm = nn.RMSNorm(
+        self.self_attn_layer_norm = nn.LayerNorm(
             config.hidden_size,
             eps=config.layer_norm_eps,
         )
@@ -191,16 +193,15 @@ class ParlerTTSDecoderBlock(nn.Module):
             num_kv_heads=config.num_key_value_heads,
             dropout=config.attention_dropout,
         )
-        self.encoder_attn_layer_norm = nn.RMSNorm(
+        self.encoder_attn_layer_norm = nn.LayerNorm(
             config.hidden_size,
             eps=config.layer_norm_eps,
         )
 
-        # FFN (SwiGLU variant)
+        # FFN (2-layer GELU, matching PyTorch Parler-TTS)
         self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
-        self.fc2 = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
-        self.fc3 = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
-        self.final_layer_norm = nn.RMSNorm(
+        self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
+        self.final_layer_norm = nn.LayerNorm(
             config.hidden_size,
             eps=config.layer_norm_eps,
         )
@@ -222,7 +223,7 @@ class ParlerTTSDecoderBlock(nn.Module):
             attention_mask: Causal self-attention mask
             encoder_attention_mask: Cross-attention mask
             kv_cache: Cached (key, value) for self-attention
-            position_offset: Position offset for RoPE
+            position_offset: Position offset for cached positions
 
         Returns:
             Tuple of:
@@ -252,12 +253,11 @@ class ParlerTTSDecoderBlock(nn.Module):
             )
             hidden_states = residual + hidden_states
 
-        # FFN (SwiGLU)
+        # FFN (GELU)
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
-        gate = nn.silu(self.fc1(hidden_states))
-        up = self.fc2(hidden_states)
-        hidden_states = self.fc3(gate * up)
+        hidden_states = nn.gelu(self.fc1(hidden_states))
+        hidden_states = self.fc2(hidden_states)
         hidden_states = residual + hidden_states
 
         return hidden_states, new_kv_cache
@@ -285,7 +285,7 @@ class ParlerTTSDecoder(nn.Module):
         ]
 
         # Final layer norm
-        self.layer_norm = nn.RMSNorm(
+        self.layer_norm = nn.LayerNorm(
             config.hidden_size,
             eps=config.layer_norm_eps,
         )
@@ -307,7 +307,7 @@ class ParlerTTSDecoder(nn.Module):
             attention_mask: Causal self-attention mask
             encoder_attention_mask: Cross-attention mask
             kv_cache: List of (key, value) tuples for each layer
-            position_offset: Position offset for RoPE
+            position_offset: Position offset for cached positions
 
         Returns:
             Tuple of:

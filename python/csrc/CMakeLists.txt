@@ -13,6 +13,7 @@ target_sources(
     ${CMAKE_CURRENT_LIST_DIR}/primitives/resample.cpp
     ${CMAKE_CURRENT_LIST_DIR}/primitives/dct.cpp
     ${CMAKE_CURRENT_LIST_DIR}/primitives/spectral.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/primitives/spectral_contrast.cpp
 )
 
 target_include_directories(
@@ -43,6 +44,7 @@ if(MLX_BUILD_METAL)
             ${CMAKE_CURRENT_LIST_DIR}/metal/pad_signal.metal
             ${CMAKE_CURRENT_LIST_DIR}/metal/windows.metal
             ${CMAKE_CURRENT_LIST_DIR}/metal/mel_filterbank.metal
+            ${CMAKE_CURRENT_LIST_DIR}/metal/spectral_contrast.metal
         INCLUDE_DIRS
             ${PROJECT_SOURCE_DIR}
             ${MLX_INCLUDE_DIRS}
@@ -70,11 +72,13 @@ endif()
 find_package(nanobind CONFIG REQUIRED)
 
 # Python bindings with nanobind
-# Note: STABLE_ABI is intentionally NOT used to ensure type caster compatibility
-# with MLX's shared NB_DOMAIN. STABLE_ABI limits cross-module type sharing.
+# Must match MLX's nanobind configuration exactly for type caster sharing:
+# - STABLE_ABI: MLX uses this
+# - NB_DOMAIN mlx: Enables cross-module type visibility
 nanobind_add_module(
     _ext
     NB_STATIC
+    STABLE_ABI
     LTO
     NOMINSIZE
     NB_DOMAIN

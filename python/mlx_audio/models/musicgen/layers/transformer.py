@@ -38,11 +38,11 @@ class MultiHeadAttention(nn.Module):
         self.scale = self.head_dim ** -0.5
         self.dropout = dropout
 
-        # Projections
-        self.q_proj = nn.Linear(hidden_size, hidden_size)
-        self.k_proj = nn.Linear(hidden_size, hidden_size)
-        self.v_proj = nn.Linear(hidden_size, hidden_size)
-        self.out_proj = nn.Linear(hidden_size, hidden_size)
+        # Projections (no bias to match HuggingFace MusicGen)
+        self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.out_proj = nn.Linear(hidden_size, hidden_size, bias=False)
 
     def __call__(
         self,
@@ -103,18 +103,20 @@ class MultiHeadAttention(nn.Module):
         value = value.reshape(batch_size, kv_seq_length, self.num_heads, self.head_dim)
         value = value.transpose(0, 2, 1, 3)
 
-        # Compute attention scores
-        attn_weights = (query @ key.transpose(0, 1, 3, 2)) * self.scale
+        # Use Flash Attention if available (O(T) memory vs O(T²))
+        if hasattr(mx.fast, "scaled_dot_product_attention"):
+            attn_output = mx.fast.scaled_dot_product_attention(
+                query, key, value, scale=self.scale, mask=attention_mask
+            )
+        else:
+            # Fallback: standard O(T²) attention
+            attn_weights = (query @ key.transpose(0, 1, 3, 2)) * self.scale
 
-        # Apply attention mask
-        if attention_mask is not None:
-            attn_weights = attn_weights + attention_mask
+            if attention_mask is not None:
+                attn_weights = attn_weights + attention_mask
 
-        # Softmax
-        attn_weights = mx.softmax(attn_weights, axis=-1)
-
-        # Apply to values
-        attn_output = attn_weights @ value
+            attn_weights = mx.softmax(attn_weights, axis=-1)
+            attn_output = attn_weights @ value
 
         # Reshape back
         attn_output = attn_output.transpose(0, 2, 1, 3)
@@ -166,9 +168,9 @@ class MusicGenDecoderBlock(nn.Module):
             eps=config.layer_norm_eps,
         )
 
-        # FFN
-        self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size)
-        self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size)
+        # FFN (no bias to match HuggingFace MusicGen)
+        self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
+        self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
         self.final_layer_norm = nn.LayerNorm(
             config.hidden_size,
             eps=config.layer_norm_eps,
