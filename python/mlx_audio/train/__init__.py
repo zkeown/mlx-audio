@@ -28,6 +28,14 @@ Example:
 __version__ = "0.1.0"
 
 from mlx_audio.train.callbacks.base import Callback, CallbackContext, CallbackPriority
+from mlx_audio.train.memory import (
+    MemoryMonitor,
+    MemoryStats,
+    check_memory,
+    cleanup_memory,
+    get_memory_monitor,
+    get_memory_stats,
+)
 from mlx_audio.train.module import OptimizerConfig, TrainModule
 from mlx_audio.train.precompute import (
     EmbeddingPreprocessor,
@@ -43,8 +51,14 @@ __all__ = [
     "Callback",
     "CallbackContext",
     "CallbackPriority",
+    "check_memory",
+    "cleanup_memory",
     "EmbeddingPreprocessor",
+    "get_memory_monitor",
+    "get_memory_stats",
     "MelSpectrogramPreprocessor",
+    "MemoryMonitor",
+    "MemoryStats",
     "OptimizerConfig",
     "PrecomputeStats",
     "Preprocessor",

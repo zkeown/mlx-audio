@@ -14,6 +14,7 @@ import mlx.nn as nn
 import mlx.optimizers as optim
 
 from mlx_audio.train.callbacks.base import Callback, CallbackContext, CallbackRegistry
+from mlx_audio.train.memory import MemoryMonitor
 from mlx_audio.train.module import TrainModule
 
 if TYPE_CHECKING:
@@ -74,6 +75,7 @@ class Trainer:
         overfit_batches: int | float = 0,
         detect_anomaly: bool = False,
         debug_lazy_eval: bool = False,
+        memory_monitor: MemoryMonitor | bool = True,
     ) -> None:
         """Initialize the Trainer.
 
@@ -113,6 +115,10 @@ class Trainer:
                 and repeats them. Useful for debugging model capacity.
             detect_anomaly: If True, checks for NaN/Inf in gradients.
             debug_lazy_eval: Enable debugging for lazy evaluation issues.
+            memory_monitor: Memory monitoring configuration. Can be:
+                - True (default): Enable with default thresholds (80% warning, 90% critical)
+                - False: Disable memory monitoring
+                - MemoryMonitor instance: Use custom configuration
         """
         # Handle fast_dev_run mode - overrides other settings
         if fast_dev_run:
@@ -158,6 +164,14 @@ class Trainer:
         self.overfit_batches = overfit_batches
         self.detect_anomaly = detect_anomaly
         self.debug_lazy_eval = debug_lazy_eval
+
+        # Memory monitoring
+        if memory_monitor is True:
+            self._memory_monitor: MemoryMonitor | None = MemoryMonitor()
+        elif memory_monitor is False:
+            self._memory_monitor = None
+        else:
+            self._memory_monitor = memory_monitor
 
         # State
         self.current_epoch: int = 0
@@ -963,10 +977,25 @@ class Trainer:
         if self.debug_lazy_eval:
             self._eval_count += 1
 
-        # Periodically clear memory cache to prevent leaks
-        # Do this every 100 steps to avoid overhead
-        if self.global_step % 100 == 0:
-            mx.clear_cache()
+        # Memory monitoring and cleanup
+        if self._memory_monitor is not None:
+            # The monitor handles cleanup and warnings automatically
+            memory_ok = self._memory_monitor.check()
+            if not memory_ok:
+                # Memory is critical even after cleanup - may need to stop
+                import warnings
+                warnings.warn(
+                    "Memory pressure is critical. Consider reducing batch size "
+                    "or enabling gradient checkpointing.",
+                    ResourceWarning,
+                    stacklevel=2,
+                )
+        else:
+            # Fallback: periodically clear memory caches to prevent OOM
+            if self.global_step % 100 == 0:
+                import gc
+                mx.clear_cache()
+                gc.collect()
 
     def _create_context(
         self,
