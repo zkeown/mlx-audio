@@ -430,21 +430,21 @@ def _create_simple_dataloader(
         for start in range(0, len(indices), batch_size):
             batch_indices = indices[start:start + batch_size]
 
-            # Collect batch using numpy arrays
+            # Collect batch - stack mx.arrays directly to avoid numpy round-trip
             specs = []
             onsets = []
             velocities = []
 
             for idx in batch_indices:
                 sample = dataset[idx]
-                specs.append(np.array(sample["spectrogram"]))
-                onsets.append(np.array(sample["onset_target"]))
-                velocities.append(np.array(sample["velocity_target"]))
+                specs.append(sample["spectrogram"])
+                onsets.append(sample["onset_target"])
+                velocities.append(sample["velocity_target"])
 
             yield {
-                "spectrogram": mx.array(np.stack(specs)),
-                "onset_target": mx.array(np.stack(onsets)),
-                "velocity_target": mx.array(np.stack(velocities)),
+                "spectrogram": mx.stack(specs),
+                "onset_target": mx.stack(onsets),
+                "velocity_target": mx.stack(velocities),
             }
 
 

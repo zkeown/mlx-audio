@@ -147,7 +147,12 @@ class ProgressBar(Callback):
 
     def _get_batch_size(self, batch: Any) -> int:
         """Extract batch size from batch data."""
-        if isinstance(batch, tuple | list) and len(batch) > 0:
+        if isinstance(batch, dict):
+            # Dict batch - get first value's shape
+            for v in batch.values():
+                if hasattr(v, "shape") and len(v.shape) > 0:
+                    return v.shape[0]
+        elif isinstance(batch, tuple | list) and len(batch) > 0:
             first = batch[0]
             if hasattr(first, "shape"):
                 return first.shape[0]
@@ -263,6 +268,7 @@ class RichProgressBar(Callback):
         self._batch_size: int = 0
         self._accumulate_grad_batches: int = 1
         self._learning_rate: float = 0.0
+        self._first_batch_seen: bool = False
 
     def _supports_colors(self) -> bool:
         """Check if terminal supports colors."""
@@ -443,7 +449,12 @@ class RichProgressBar(Callback):
 
     def _get_batch_size(self, batch: Any) -> int:
         """Extract batch size from batch data."""
-        if isinstance(batch, tuple | list) and len(batch) > 0:
+        if isinstance(batch, dict):
+            # Dict batch - get first value's shape
+            for v in batch.values():
+                if hasattr(v, "shape") and len(v.shape) > 0:
+                    return v.shape[0]
+        elif isinstance(batch, tuple | list) and len(batch) > 0:
             first = batch[0]
             if hasattr(first, "shape"):
                 return first.shape[0]
@@ -459,7 +470,7 @@ class RichProgressBar(Callback):
         # Capture training configuration
         self._model_name = module.__class__.__name__
         self._num_params = getattr(module, "num_parameters", 0)
-        self._batch_size = getattr(trainer, "_current_batch_size", 0)
+        self._batch_size = 0  # Will be detected from first batch
         self._accumulate_grad_batches = getattr(trainer, "accumulate_grad_batches", 1)
         self._learning_rate = getattr(module, "learning_rate", 0.0)
 
@@ -476,6 +487,7 @@ class RichProgressBar(Callback):
         self._loss_history = []
         self._throughput_history = []
         self._metric_history = {}
+        self._first_batch_seen = False
 
     def on_train_epoch_start(
         self,
@@ -506,8 +518,10 @@ class RichProgressBar(Callback):
         batch_size = self._get_batch_size(batch)
         self._samples_processed += batch_size
 
-        if self._batch_size == 0:
+        # Detect batch size from first batch
+        if not self._first_batch_seen:
             self._batch_size = batch_size
+            self._first_batch_seen = True
 
         # Record loss history
         if "loss" in outputs:

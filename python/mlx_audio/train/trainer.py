@@ -467,12 +467,13 @@ class Trainer:
 
         # Storage for metrics from training_step
         # NOTE: We store (loss, metrics_dict) and extract inside compiled region
-        step_result_cache: dict[str, Any] = {}
+        # Use a list with single element to avoid dict overhead and allow clearing
+        step_result_cache: list[Any] = [None]
 
         def training_step_fn(model: TrainModule, batch: Any, batch_idx: int) -> mx.array:
             """Loss function for nn.value_and_grad - caches result, returns loss."""
             result = model.training_step(batch, batch_idx)
-            step_result_cache["result"] = result
+            step_result_cache[0] = result
             if isinstance(result, mx.array):
                 return result
             return result["loss"]
@@ -520,11 +521,13 @@ class Trainer:
             loss, grads = loss_and_grad_fn(module, batch, batch_idx)
 
             # Extract metrics from cached result (set by training_step_fn)
-            cached_result = step_result_cache.get("result")
+            cached_result = step_result_cache[0]
             if cached_result is None or isinstance(cached_result, mx.array):
                 metrics = {}
             else:
                 metrics = {k: v for k, v in cached_result.items() if k != "loss"}
+            # Clear cache to avoid memory leak
+            step_result_cache[0] = None
 
             # Gradient anomaly detection
             if detect_anomaly:
@@ -959,6 +962,11 @@ class Trainer:
 
         if self.debug_lazy_eval:
             self._eval_count += 1
+
+        # Periodically clear memory cache to prevent leaks
+        # Do this every 100 steps to avoid overhead
+        if self.global_step % 100 == 0:
+            mx.clear_cache()
 
     def _create_context(
         self,
