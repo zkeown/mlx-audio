@@ -10,7 +10,7 @@ from mlx_audio.train.callbacks.checkpoint import ModelCheckpoint
 from mlx_audio.train.callbacks.early_stopping import EarlyStopping
 from mlx_audio.train.callbacks.gradient_clip import GradientClipper, clip_grad_norm, clip_grad_value
 from mlx_audio.train.callbacks.lr_monitor import LearningRateMonitor
-from mlx_audio.train.callbacks.progress import ProgressBar
+from mlx_audio.train.callbacks.progress import ProgressBar, RichProgressBar
 
 __all__ = [
     # Base
@@ -24,6 +24,7 @@ __all__ = [
     "GradientClipper",
     "LearningRateMonitor",
     "ProgressBar",
+    "RichProgressBar",
     # Utilities
     "clip_grad_norm",
     "clip_grad_value",

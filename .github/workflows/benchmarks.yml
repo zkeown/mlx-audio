@@ -56,7 +56,7 @@ jobs:
 
       - name: Download baseline benchmarks
         id: baseline
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: benchmarks.yml
           name: benchmark-baseline

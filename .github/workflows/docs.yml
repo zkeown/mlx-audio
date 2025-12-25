@@ -44,11 +44,12 @@ jobs:
       - name: Build documentation
         run: mkdocs build --strict
 
+      - name: Install lychee
+        run: brew install lychee
+
       - name: Check for broken links
-        uses: lycheeverse/lychee-action@v1
-        with:
-          args: --verbose --no-progress './python/site/**/*.html'
-          fail: false  # Don't fail on external link issues
+        run: lychee --verbose --no-progress './site/**/*.html' || true
+        # Don't fail on external link issues
 
       - name: Upload documentation artifact
         uses: actions/upload-artifact@v4

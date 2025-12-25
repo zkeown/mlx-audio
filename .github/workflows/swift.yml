@@ -25,7 +25,14 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        run: |
+          # Use the latest Xcode 15.x available on the runner
+          XCODE_PATH=$(ls -d /Applications/Xcode_15*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH="/Applications/Xcode.app"
+          fi
+          echo "Using Xcode at: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
 
       - name: Show Swift version
         run: swift --version

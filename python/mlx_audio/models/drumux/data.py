@@ -252,10 +252,35 @@ class EGMDDataset:
                 self.sample_indices.append((ex_idx, start))
 
     def _preload_midi(self):
-        """Pre-load all MIDI files into memory."""
-        print(f"  Pre-loading {len(self.examples)} MIDI files...")
-        for ex_idx, example in enumerate(self.examples):
-            self._midi_cache[ex_idx] = load_midi_hits(example["midi_path"])
+        """Pre-load all MIDI files into memory using parallel loading."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import os
+
+        num_examples = len(self.examples)
+        print(f"  Pre-loading {num_examples:,} MIDI files...")
+
+        # Use threads for I/O-bound MIDI parsing
+        num_threads = min(32, os.cpu_count() or 8)
+
+        def load_midi_item(item: tuple[int, dict]) -> tuple[int, list[DrumHit]]:
+            ex_idx, example = item
+            return ex_idx, load_midi_hits(example["midi_path"])
+
+        items = list(enumerate(self.examples))
+        loaded = 0
+
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = {executor.submit(load_midi_item, item): item[0] for item in items}
+
+            for future in as_completed(futures):
+                ex_idx, hits = future.result()
+                self._midi_cache[ex_idx] = hits
+                loaded += 1
+
+                # Progress update every 10%
+                if loaded % (num_examples // 10 + 1) == 0:
+                    pct = loaded * 100 // num_examples
+                    print(f"    MIDI loading: {pct}% ({loaded:,}/{num_examples:,})")
 
     def _get_spectrogram(self, ex_idx: int) -> np.ndarray:
         """Get spectrogram, using cache if enabled."""

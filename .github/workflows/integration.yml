@@ -80,14 +80,13 @@ jobs:
             ls -la "$MUSDB18_ROOT" | head -10
           else
             echo "available=false" >> $GITHUB_OUTPUT
-            echo "::error::MUSDB18-HQ dataset not found at $MUSDB18_ROOT"
-            echo "Integration tests require the MUSDB18-HQ dataset to be available."
+            echo "::warning::MUSDB18-HQ dataset not found at $MUSDB18_ROOT"
+            echo "Integration tests will be skipped."
             echo "Configure the MUSDB18_ROOT secret or ensure the dataset exists on the runner."
-            exit 1
           fi
 
       - name: Run MUSDB18 quick tests
-        if: github.event.inputs.test_scope != 'full'
+        if: steps.check-musdb18.outputs.available == 'true' && github.event.inputs.test_scope != 'full'
         run: |
           cd python
           python -m pytest tests/integration/test_musdb18_separation.py \
@@ -96,7 +95,7 @@ jobs:
             2>&1 | tee musdb18-results.txt
 
       - name: Run MUSDB18 full evaluation
-        if: github.event.inputs.test_scope == 'full'
+        if: steps.check-musdb18.outputs.available == 'true' && github.event.inputs.test_scope == 'full'
         run: |
           cd python
           python -m pytest tests/integration/test_musdb18_separation.py \
@@ -157,14 +156,13 @@ jobs:
             ls -la "$ESC50_ROOT" | head -10
           else
             echo "available=false" >> $GITHUB_OUTPUT
-            echo "::error::ESC-50 dataset not found at $ESC50_ROOT"
-            echo "Integration tests require the ESC-50 dataset to be available."
+            echo "::warning::ESC-50 dataset not found at $ESC50_ROOT"
+            echo "Integration tests will be skipped."
             echo "Configure the ESC50_ROOT secret or ensure the dataset exists on the runner."
-            exit 1
           fi
 
       - name: Run ESC-50 quick tests
-        if: github.event.inputs.test_scope != 'full'
+        if: steps.check-esc50.outputs.available == 'true' && github.event.inputs.test_scope != 'full'
         run: |
           cd python
           python -m pytest tests/integration/test_esc50_classification.py \
@@ -173,7 +171,7 @@ jobs:
             2>&1 | tee esc50-results.txt
 
       - name: Run ESC-50 full evaluation
-        if: github.event.inputs.test_scope == 'full'
+        if: steps.check-esc50.outputs.available == 'true' && github.event.inputs.test_scope == 'full'
         run: |
           cd python
           python -m pytest tests/integration/test_esc50_classification.py \

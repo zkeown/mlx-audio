@@ -111,7 +111,7 @@ jobs:
       - name: Generate Swift fixtures
         run: |
           cd python
-          python tests/generate_references.py --model all --output-dir ../swift/Tests/Fixtures
+          python tests/parity/generate_references.py --model all --output-dir ../swift/Tests/Fixtures
 
       - name: List generated fixtures
         run: |

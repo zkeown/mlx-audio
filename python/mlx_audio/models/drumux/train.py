@@ -14,7 +14,7 @@ from mlx_audio.train import Trainer
 from mlx_audio.train.callbacks import (
     EarlyStopping,
     ModelCheckpoint,
-    ProgressBar,
+    RichProgressBar,
 )
 
 from .model import DrumTranscriberConfig
@@ -166,7 +166,7 @@ def main():
         compile=True,
         seed=args.seed,
         callbacks=[
-            ProgressBar(),
+            RichProgressBar(),
             ModelCheckpoint(
                 dirpath=str(args.checkpoint_dir),
                 filename="best_model",
