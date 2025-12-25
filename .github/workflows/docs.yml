@@ -59,6 +59,8 @@ jobs:
           retention-days: 7
 
   # Deploy to GitHub Pages on main branch pushes
+  # NOTE: Requires GitHub Pages to be enabled in repository settings
+  # Go to Settings > Pages > Build and deployment > Source > GitHub Actions
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -75,8 +77,22 @@ jobs:
           name: documentation
           path: site
       - uses: actions/configure-pages@v5
+        id: pages
+        continue-on-error: true
+      - name: Check if Pages is enabled
+        id: check-pages
+        run: |
+          if [ "${{ steps.pages.outcome }}" == "failure" ]; then
+            echo "::warning::GitHub Pages is not enabled. Skipping deployment."
+            echo "::warning::To enable: Go to Settings > Pages > Source > GitHub Actions"
+            echo "enabled=false" >> $GITHUB_OUTPUT
+          else
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          fi
       - uses: actions/upload-pages-artifact@v4
+        if: steps.check-pages.outputs.enabled == 'true'
         with:
           path: site
       - id: deployment
+        if: steps.check-pages.outputs.enabled == 'true'
         uses: actions/deploy-pages@v4
