@@ -12,7 +12,6 @@ import numpy as np
 
 from ._validation import validate_positive
 from .mel import melspectrogram
-from .stft import magnitude, stft
 
 
 def onset_strength(

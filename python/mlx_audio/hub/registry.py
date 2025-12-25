@@ -6,9 +6,10 @@ Provides a pluggable architecture for model discovery and dispatch.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Type
+from typing import Any
 
 
 class TaskType(Enum):
@@ -48,7 +49,7 @@ class ModelSpec:
     default_params: dict[str, Any] = field(default_factory=dict)
     capabilities: list[str] = field(default_factory=list)
 
-    def get_model_class(self) -> Type:
+    def get_model_class(self) -> type:
         """Lazy import of model class."""
         module_path, class_name = self.model_class.rsplit(".", 1)
         module = importlib.import_module(module_path)
@@ -564,7 +565,7 @@ def register_model(
     task: TaskType,
     default_repo: str,
     **kwargs,
-) -> Callable[[Type], Type]:
+) -> Callable[[type], type]:
     """Decorator to register a model class with the registry.
 
     Example:
@@ -573,7 +574,7 @@ def register_model(
             ...
     """
 
-    def decorator(cls: Type) -> Type:
+    def decorator(cls: type) -> type:
         spec = ModelSpec(
             name=name,
             task=task,

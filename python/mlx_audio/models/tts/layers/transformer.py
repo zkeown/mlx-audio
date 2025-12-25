@@ -163,7 +163,7 @@ class ParlerTTSDecoderBlock(nn.Module):
     added to inputs before the decoder), matching the PyTorch Parler-TTS.
     """
 
-    def __init__(self, config: "ParlerTTSConfig", layer_idx: int = 0):
+    def __init__(self, config: ParlerTTSConfig, layer_idx: int = 0):
         """Initialize decoder block.
 
         Args:
@@ -269,7 +269,7 @@ class ParlerTTSDecoder(nn.Module):
     Generates audio tokens conditioned on text and description embeddings.
     """
 
-    def __init__(self, config: "ParlerTTSConfig"):
+    def __init__(self, config: ParlerTTSConfig):
         """Initialize decoder.
 
         Args:

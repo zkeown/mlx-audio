@@ -28,8 +28,8 @@ Example:
 """
 
 from mlx_audio.models.vad.config import VADConfig
+from mlx_audio.models.vad.layers import StackedLSTM, VADDecoder, VADEncoder
 from mlx_audio.models.vad.model import SileroVAD
-from mlx_audio.models.vad.layers import VADEncoder, VADDecoder, StackedLSTM
 
 __all__ = [
     "VADConfig",

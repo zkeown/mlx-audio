@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
-
 import mlx.core as mx
 import mlx.nn as nn
 
@@ -90,7 +88,7 @@ class BandSplitModule(nn.Module):
     def __init__(
         self,
         in_channel: int,
-        band_specs: List[Tuple[int, int]],
+        band_specs: list[tuple[int, int]],
         emb_dim: int = 128,
         require_no_overlap: bool = False,
         require_no_gap: bool = True,
@@ -180,7 +178,7 @@ class BandSplitModule(nn.Module):
         emb_dim: int = 128,
         band_type: str = "musical",
         **kwargs,
-    ) -> "BandSplitModule":
+    ) -> BandSplitModule:
         """Create BandSplitModule from configuration.
 
         Args:

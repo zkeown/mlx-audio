@@ -11,7 +11,6 @@ import numpy as np
 
 from ._validation import validate_positive
 from .onset import onset_strength
-from .pitch import autocorrelation
 
 
 def tempo(

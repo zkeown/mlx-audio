@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def normalize_audio_input(
-    audio: "str | Path | np.ndarray | mx.array | AudioData",
+    audio: str | Path | np.ndarray | mx.array | AudioData,
     target_sample_rate: int | None = None,
     mono: bool = False,
 ) -> tuple[mx.array, int]:

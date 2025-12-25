@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 import mlx.core as mx
@@ -116,10 +115,7 @@ class EnCodecConvTranspose1d(nn.Module):
             else:
                 trim_left = self.trim_right // 2
                 trim_right = self.trim_right - trim_left
-                if trim_right > 0:
-                    x = x[:, :, trim_left:-trim_right]
-                else:
-                    x = x[:, :, trim_left:]
+                x = x[:, :, trim_left:-trim_right] if trim_right > 0 else x[:, :, trim_left:]
 
         return x
 
@@ -133,10 +129,14 @@ class EnCodecResnetBlock(nn.Module):
     def __init__(
         self,
         dim: int,
-        kernel_sizes: list[int] = [3, 1],
-        dilations: list[int] = [1, 1],
+        kernel_sizes: list[int] = None,
+        dilations: list[int] = None,
         causal: bool = True,
     ):
+        if dilations is None:
+            dilations = [1, 1]
+        if kernel_sizes is None:
+            kernel_sizes = [3, 1]
         super().__init__()
 
         # Block contains 4 layers: [ELU, Conv, ELU, Conv]
@@ -201,7 +201,7 @@ class EnCodecEncoder(nn.Module):
     layers.15: Conv1d (final)
     """
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         super().__init__()
         self.config = config
 
@@ -227,7 +227,7 @@ class EnCodecEncoder(nn.Module):
         current_channels = config.num_filters
 
         # Encoder blocks with downsampling
-        for i, ratio in enumerate(config.ratios):
+        for _i, ratio in enumerate(config.ratios):
             out_channels = current_channels * 2
 
             # ResnetBlock (odd index after each pair)
@@ -294,7 +294,7 @@ class EnCodecEncoder(nn.Module):
 class EnCodecDecoder(nn.Module):
     """EnCodec decoder matching HuggingFace structure exactly."""
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         super().__init__()
         self.config = config
 
@@ -324,7 +324,7 @@ class EnCodecDecoder(nn.Module):
         current_channels = hidden_channels
 
         # Decoder blocks with upsampling (reversed ratios)
-        for i, ratio in enumerate(reversed(config.ratios)):
+        for _i, ratio in enumerate(reversed(config.ratios)):
             out_channels = current_channels // 2
 
             # Upsample conv (transposed)
@@ -438,7 +438,7 @@ class VectorQuantization(nn.Module):
 class ResidualVectorQuantizer(nn.Module):
     """Residual vector quantizer with multiple codebooks."""
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         super().__init__()
         self.num_codebooks = config.num_codebooks
 
@@ -476,7 +476,7 @@ class ResidualVectorQuantizer(nn.Module):
 class EnCodecHF(nn.Module):
     """EnCodec model matching HuggingFace architecture exactly."""
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         super().__init__()
         self.config = config
 

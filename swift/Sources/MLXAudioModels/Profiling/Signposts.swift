@@ -83,13 +83,10 @@ public enum Signposts {
     /// Set to `false` to disable all signpost overhead in release builds.
     /// Default is `true` when running in DEBUG mode.
     #if DEBUG
-    public static var isEnabled: Bool = true
+    public nonisolated(unsafe) static var isEnabled: Bool = true
     #else
-    public static var isEnabled: Bool = false
+    public nonisolated(unsafe) static var isEnabled: Bool = false
     #endif
-
-    /// Unique ID generator for signpost intervals.
-    private static let idGenerator = OSSignpostID.makeExclusive
 
     // MARK: - Interval Signposts
 

@@ -5,9 +5,9 @@ Provides model registry, caching, and HuggingFace integration.
 
 from mlx_audio.hub.cache import (
     ModelCache,
-    get_cache,
-    configure_cache,
     clear_cache,
+    configure_cache,
+    get_cache,
     preload_models,
 )
 from mlx_audio.hub.licenses import (

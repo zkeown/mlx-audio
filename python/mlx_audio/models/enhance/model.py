@@ -464,7 +464,7 @@ class DeepFilterNet(nn.Module):
         cls,
         path: str | Path | None = None,
         config: DeepFilterNetConfig | None = None,
-    ) -> "DeepFilterNet":
+    ) -> DeepFilterNet:
         """Load pretrained model.
 
         Parameters

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -94,7 +94,7 @@ class MusicGenConfig:
         return self.codebook_size  # HF uses codebook_size directly
 
     @classmethod
-    def small(cls) -> "MusicGenConfig":
+    def small(cls) -> MusicGenConfig:
         """MusicGen small configuration (~300M parameters)."""
         return cls(
             num_codebooks=4,
@@ -108,7 +108,7 @@ class MusicGenConfig:
         )
 
     @classmethod
-    def medium(cls) -> "MusicGenConfig":
+    def medium(cls) -> MusicGenConfig:
         """MusicGen medium configuration (~1.5B parameters)."""
         return cls(
             num_codebooks=4,
@@ -122,7 +122,7 @@ class MusicGenConfig:
         )
 
     @classmethod
-    def large(cls) -> "MusicGenConfig":
+    def large(cls) -> MusicGenConfig:
         """MusicGen large configuration (~3.3B parameters)."""
         return cls(
             num_codebooks=4,
@@ -136,14 +136,14 @@ class MusicGenConfig:
         )
 
     @classmethod
-    def melody(cls) -> "MusicGenConfig":
+    def melody(cls) -> MusicGenConfig:
         """MusicGen melody configuration (with melody conditioning)."""
         config = cls.medium()
         # Melody variant uses additional conditioning
         return config
 
     @classmethod
-    def from_name(cls, name: str) -> "MusicGenConfig":
+    def from_name(cls, name: str) -> MusicGenConfig:
         """Create config from model name.
 
         Args:
@@ -173,7 +173,7 @@ class MusicGenConfig:
         return configs[name]()
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "MusicGenConfig":
+    def from_dict(cls, d: dict[str, Any]) -> MusicGenConfig:
         """Create config from dictionary."""
         valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
         return cls(**{k: v for k, v in d.items() if k in valid_fields})

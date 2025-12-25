@@ -86,10 +86,7 @@ class ConvTransposeBlock(nn.Module):
                 # Trim equally from both sides
                 trim_left = self.padding // 2
                 trim_right = self.padding - trim_left
-                if trim_right > 0:
-                    x = x[:, :, trim_left:-trim_right]
-                else:
-                    x = x[:, :, trim_left:]
+                x = x[:, :, trim_left:-trim_right] if trim_right > 0 else x[:, :, trim_left:]
 
         # Apply activation
         if self.activation == "elu":
@@ -281,7 +278,7 @@ class EnCodecDecoder(nn.Module):
         -> ELU -> Conv1d(final)
     """
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         """Initialize decoder.
 
         Args:
@@ -309,7 +306,7 @@ class EnCodecDecoder(nn.Module):
         # LSTM layers (stack manually since MLX LSTM doesn't support num_layers)
         self.lstm_layers_list = []
         if config.lstm_layers > 0:
-            for i in range(config.lstm_layers):
+            for _i in range(config.lstm_layers):
                 self.lstm_layers_list.append(
                     nn.LSTM(hidden_channels, hidden_channels)
                 )
@@ -317,7 +314,7 @@ class EnCodecDecoder(nn.Module):
         # Decoder blocks with progressive upsampling (reversed ratios)
         self.blocks = []
         in_channels = hidden_channels
-        for i, ratio in enumerate(reversed(config.ratios)):
+        for _i, ratio in enumerate(reversed(config.ratios)):
             out_channels = in_channels // 2
             self.blocks.append(
                 DecoderBlock(

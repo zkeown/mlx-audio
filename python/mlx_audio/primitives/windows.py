@@ -166,10 +166,7 @@ def _get_window_cached(
     # Fallback to Python/NumPy implementation
     # For periodic (fftbins=True), we compute n_fft+1 points and drop the last
     # This matches scipy/librosa behavior for DFT-even windows
-    if fftbins:
-        n = n_fft + 1
-    else:
-        n = n_fft
+    n = n_fft + 1 if fftbins else n_fft
 
     # Use dispatch table for window function lookup
     window_func = _WINDOW_FUNCTIONS.get(window_name)

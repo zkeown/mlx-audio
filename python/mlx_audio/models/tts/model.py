@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_audio.models.tts.config import ParlerTTSConfig
 from mlx_audio.models.tts.layers.embeddings import CodebookEmbeddings, sinusoidal_embeddings
+from mlx_audio.models.tts.layers.lm_head import DelayPatternScheduler, ParlerTTSLMHead
 from mlx_audio.models.tts.layers.transformer import ParlerTTSDecoder
-from mlx_audio.models.tts.layers.lm_head import ParlerTTSLMHead, DelayPatternScheduler
 
 if TYPE_CHECKING:
     from mlx_audio.models.encodec import EnCodec
@@ -87,10 +88,10 @@ class ParlerTTS(nn.Module):
         )
 
         # Audio codec (loaded separately)
-        self._audio_codec: "EnCodec" | None = None
+        self._audio_codec: EnCodec | None = None
 
     @property
-    def audio_codec(self) -> "EnCodec":
+    def audio_codec(self) -> EnCodec:
         """Get audio codec (lazy loaded)."""
         if self._audio_codec is None:
             raise RuntimeError(
@@ -98,7 +99,7 @@ class ParlerTTS(nn.Module):
             )
         return self._audio_codec
 
-    def set_audio_codec(self, codec: "EnCodec") -> None:
+    def set_audio_codec(self, codec: EnCodec) -> None:
         """Set the audio codec for encoding/decoding audio.
 
         Args:
@@ -296,7 +297,7 @@ class ParlerTTS(nn.Module):
         cls,
         path: str | Path,
         **kwargs,
-    ) -> "ParlerTTS":
+    ) -> ParlerTTS:
         """Load pretrained Parler-TTS model.
 
         Args:

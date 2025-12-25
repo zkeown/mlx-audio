@@ -225,10 +225,7 @@ class TrainModule(nn.Module):
             Model predictions (structure depends on model)
         """
         # Default: assume batch is (input, target) or just input
-        if isinstance(batch, (tuple, list)):
-            x = batch[0]
-        else:
-            x = batch
+        x = batch[0] if isinstance(batch, (tuple, list)) else batch
         return self(x)
 
     # ==================== LIFECYCLE HOOKS ====================

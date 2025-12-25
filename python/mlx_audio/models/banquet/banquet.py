@@ -302,7 +302,7 @@ class Banquet(nn.Module):
     def from_config(
         config: BanquetConfig,
         passt_config: PaSSTConfig | None = None,
-    ) -> "Banquet":
+    ) -> Banquet:
         """Create Banquet from configuration.
 
         Args:

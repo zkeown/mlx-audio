@@ -13,7 +13,7 @@ Example:
 from mlx_audio.functional.classify import classify
 from mlx_audio.functional.detect_speech import detect_speech
 from mlx_audio.functional.diarize import diarize
-from mlx_audio.functional.embed import embed, CLAPEmbeddingResult
+from mlx_audio.functional.embed import CLAPEmbeddingResult, embed
 from mlx_audio.functional.enhance import enhance
 from mlx_audio.functional.generate import generate
 from mlx_audio.functional.separate import separate

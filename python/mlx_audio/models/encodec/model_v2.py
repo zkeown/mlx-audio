@@ -397,10 +397,7 @@ class EncodecResidualVectorQuantizer(nn.Module):
 
         for k, layer in enumerate(self.layers):
             q = layer.decode(codes[:, k, :])
-            if quantized is None:
-                quantized = q
-            else:
-                quantized = quantized + q
+            quantized = q if quantized is None else quantized + q
 
         return quantized
 
@@ -435,7 +432,7 @@ class EncodecEncoder(nn.Module):
     15: EncodecConv1d (final)
     """
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         super().__init__()
         self.config = config
 
@@ -456,7 +453,7 @@ class EncodecEncoder(nn.Module):
         # For each ratio: ResnetBlock, ELU, DownsampleConv
         # Note: ratios are stored as upsampling order [8,5,4,4], but encoder
         # uses them in reversed order [4,4,5,8] for downsampling
-        for i, ratio in enumerate(reversed(config.ratios)):
+        for _i, ratio in enumerate(reversed(config.ratios)):
             out_channels = current_channels * 2
 
             # ResnetBlock
@@ -508,7 +505,7 @@ class EncodecEncoder(nn.Module):
         if x.ndim == 2:
             x = mx.expand_dims(x, axis=1)
 
-        for i, layer in enumerate(self.layers):
+        for _i, layer in enumerate(self.layers):
             if layer is None:
                 # ELU activation
                 x = nn.elu(x)
@@ -542,7 +539,7 @@ class EncodecDecoder(nn.Module):
     15: EncodecConv1d (final)
     """
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         super().__init__()
         self.config = config
 
@@ -571,7 +568,7 @@ class EncodecDecoder(nn.Module):
 
         # For each ratio: UpsampleConv, ResnetBlock, ELU
         # Decoder uses ratios in forward order [8,5,4,4] for upsampling
-        for i, ratio in enumerate(config.ratios):
+        for _i, ratio in enumerate(config.ratios):
             out_channels = current_channels // 2
 
             # Upsample conv
@@ -619,9 +616,7 @@ class EncodecDecoder(nn.Module):
         for layer in self.layers:
             if layer is None:
                 x = nn.elu(x)
-            elif isinstance(layer, EncodecResnetBlock):
-                x = layer(x)
-            elif isinstance(layer, EncodecLSTM):
+            elif isinstance(layer, (EncodecResnetBlock, EncodecLSTM)):
                 x = layer(x)
             else:
                 x = layer(x)
@@ -632,7 +627,7 @@ class EncodecDecoder(nn.Module):
 class EnCodecV2(nn.Module):
     """EnCodec model matching HuggingFace architecture for weight loading."""
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         super().__init__()
         self.config = config
 
@@ -671,7 +666,7 @@ class EnCodecV2(nn.Module):
         return reconstructed, codes
 
     @classmethod
-    def from_pretrained(cls, path: str | Path, **kwargs) -> "EnCodecV2":
+    def from_pretrained(cls, path: str | Path, **kwargs) -> EnCodecV2:
         """Load model from pretrained weights."""
         from mlx_audio.models.encodec.config import EnCodecConfig
 

@@ -54,7 +54,7 @@ class CLAPFeatureExtractor:
             pass
 
     @classmethod
-    def from_config(cls, config: "CLAPAudioConfig") -> "CLAPFeatureExtractor":
+    def from_config(cls, config: CLAPAudioConfig) -> CLAPFeatureExtractor:
         """Create feature extractor from CLAP audio config."""
         return cls(
             sample_rate=config.sample_rate,

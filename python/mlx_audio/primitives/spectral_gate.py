@@ -10,9 +10,10 @@ import mlx.core as mx
 import numpy as np
 from scipy.ndimage import minimum_filter1d, uniform_filter
 
+from mlx_audio.constants import DIVISION_EPSILON
+
 from ._validation import validate_positive, validate_range
 from .stft import istft, magnitude, phase, stft
-from mlx_audio.constants import DIVISION_EPSILON
 
 
 def spectral_gate(

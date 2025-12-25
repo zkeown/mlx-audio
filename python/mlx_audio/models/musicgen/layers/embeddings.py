@@ -82,7 +82,7 @@ class CodebookEmbeddings(nn.Module):
     all codebooks are summed together to form the input representation.
     """
 
-    def __init__(self, config: "MusicGenConfig"):
+    def __init__(self, config: MusicGenConfig):
         """Initialize codebook embeddings.
 
         Args:

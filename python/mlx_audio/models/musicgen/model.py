@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_audio.models.musicgen.config import MusicGenConfig
 from mlx_audio.models.musicgen.layers.embeddings import CodebookEmbeddings
+from mlx_audio.models.musicgen.layers.lm_head import DelayPatternScheduler, MusicGenLMHead
 from mlx_audio.models.musicgen.layers.transformer import MusicGenDecoder
-from mlx_audio.models.musicgen.layers.lm_head import MusicGenLMHead, DelayPatternScheduler
 
 if TYPE_CHECKING:
     from mlx_audio.models.encodec import EnCodec
@@ -77,10 +78,10 @@ class MusicGen(nn.Module):
         )
 
         # Audio codec (loaded separately)
-        self._audio_codec: "EnCodec" | None = None
+        self._audio_codec: EnCodec | None = None
 
     @property
-    def audio_codec(self) -> "EnCodec":
+    def audio_codec(self) -> EnCodec:
         """Get audio codec (lazy loaded)."""
         if self._audio_codec is None:
             raise RuntimeError(
@@ -88,7 +89,7 @@ class MusicGen(nn.Module):
             )
         return self._audio_codec
 
-    def set_audio_codec(self, codec: "EnCodec") -> None:
+    def set_audio_codec(self, codec: EnCodec) -> None:
         """Set the audio codec for encoding/decoding audio.
 
         Args:
@@ -257,7 +258,7 @@ class MusicGen(nn.Module):
         cls,
         path: str | Path,
         **kwargs,
-    ) -> "MusicGen":
+    ) -> MusicGen:
         """Load pretrained MusicGen model.
 
         Args:

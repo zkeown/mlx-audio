@@ -2,12 +2,12 @@
 
 from mlx_audio.types.audio import AudioData, load_audio, save_audio
 from mlx_audio.types.results import (
+    EmbeddingResult,
+    GenerationResult,
     SeparationResult,
     TranscriptionResult,
-    GenerationResult,
-    EmbeddingResult,
 )
-from mlx_audio.types.vad import VADResult, SpeechSegment
+from mlx_audio.types.vad import SpeechSegment, VADResult
 
 __all__ = [
     "AudioData",

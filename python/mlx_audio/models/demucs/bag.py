@@ -59,7 +59,7 @@ class BagOfModels:
         """Model configuration (from first model)."""
         return self._config
 
-    def eval(self) -> "BagOfModels":
+    def eval(self) -> BagOfModels:
         """Set all models to evaluation mode.
 
         Returns:
@@ -119,7 +119,7 @@ class BagOfModels:
         cls,
         path: str | Path,
         num_models: int = 4,
-    ) -> "BagOfModels":
+    ) -> BagOfModels:
         """Load a bag of pretrained HTDemucs models.
 
         Expected directory structure:

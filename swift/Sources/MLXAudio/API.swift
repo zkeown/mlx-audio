@@ -482,8 +482,8 @@ public func transcribe(
     decodingOptions.language = language
     decodingOptions.task = task  // String: "transcribe" or "translate"
 
-    // Run transcription using the MLXAudioModels transcribe function
-    let result = MLXAudioModels.transcribe(
+    // Run transcription using the transcribe function from MLXAudioModels
+    let result = transcribe(
         model: whisper,
         mel: mel,
         tokenizer: tokenizer,

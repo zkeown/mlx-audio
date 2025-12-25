@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import mlx.core as mx
 
@@ -125,7 +126,7 @@ def apply_classifier_free_guidance(
 
 
 def generate_tokens(
-    model: "MusicGen",
+    model: MusicGen,
     encoder_hidden_states: mx.array,
     max_new_tokens: int,
     temperature: float = 1.0,
@@ -264,7 +265,7 @@ def generate_tokens(
 
 
 def generate_audio(
-    model: "MusicGen",
+    model: MusicGen,
     encoder_hidden_states: mx.array,
     duration: float = 10.0,
     **kwargs,

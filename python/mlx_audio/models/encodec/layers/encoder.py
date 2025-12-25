@@ -248,7 +248,7 @@ class EnCodecEncoder(nn.Module):
         LSTM -> Conv1d(final)
     """
 
-    def __init__(self, config: "EnCodecConfig"):
+    def __init__(self, config: EnCodecConfig):
         """Initialize encoder.
 
         Args:
@@ -270,7 +270,7 @@ class EnCodecEncoder(nn.Module):
         # Encoder blocks with progressive downsampling
         self.blocks = []
         in_channels = config.num_filters
-        for i, ratio in enumerate(config.ratios):
+        for _i, ratio in enumerate(config.ratios):
             out_channels = in_channels * 2
             self.blocks.append(
                 EncoderBlock(
@@ -290,7 +290,7 @@ class EnCodecEncoder(nn.Module):
         # LSTM layers (stack manually since MLX LSTM doesn't support num_layers)
         self.lstm_layers_list = []
         if config.lstm_layers > 0:
-            for i in range(config.lstm_layers):
+            for _i in range(config.lstm_layers):
                 self.lstm_layers_list.append(
                     nn.LSTM(in_channels, in_channels)
                 )

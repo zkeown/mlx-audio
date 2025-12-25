@@ -2,25 +2,23 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
-
 import mlx.core as mx
 import numpy as np
 
 
-def band_widths_from_specs(band_specs: List[Tuple[int, int]]) -> List[int]:
+def band_widths_from_specs(band_specs: list[tuple[int, int]]) -> list[int]:
     """Get bandwidth for each band specification."""
     return [end - start for start, end in band_specs]
 
 
-def check_nonzero_bandwidth(band_specs: List[Tuple[int, int]]) -> None:
+def check_nonzero_bandwidth(band_specs: list[tuple[int, int]]) -> None:
     """Check that all bands have positive bandwidth."""
     for start, end in band_specs:
         if end - start <= 0:
             raise ValueError("Bands cannot be zero-width")
 
 
-def check_no_overlap(band_specs: List[Tuple[int, int]]) -> None:
+def check_no_overlap(band_specs: list[tuple[int, int]]) -> None:
     """Check that bands do not overlap."""
     end_prev = -1
     for start, end in band_specs:
@@ -29,7 +27,7 @@ def check_no_overlap(band_specs: List[Tuple[int, int]]) -> None:
         end_prev = end
 
 
-def check_no_gap(band_specs: List[Tuple[int, int]]) -> None:
+def check_no_gap(band_specs: list[tuple[int, int]]) -> None:
     """Check that there are no gaps between bands."""
     start, _ = band_specs[0]
     assert start == 0, "First band must start at 0"
@@ -124,14 +122,14 @@ class MusicalBandsplitSpecification:
         self._band_specs = band_specs
         self._freq_weights = freq_weights
 
-    def get_band_specs(self) -> List[Tuple[int, int]]:
+    def get_band_specs(self) -> list[tuple[int, int]]:
         """Get list of (start_bin, end_bin) for each band."""
         return self._band_specs
 
-    def get_freq_weights(self) -> List[mx.array]:
+    def get_freq_weights(self) -> list[mx.array]:
         """Get frequency weights for each band."""
         return self._freq_weights
 
-    def get_band_widths(self) -> List[int]:
+    def get_band_widths(self) -> list[int]:
         """Get bandwidth for each band."""
         return band_widths_from_specs(self._band_specs)

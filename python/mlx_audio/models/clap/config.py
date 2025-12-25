@@ -111,7 +111,7 @@ class CLAPConfig:
     logit_scale_init: float = 2.6592  # log(14.2857)
 
     @classmethod
-    def htsat_tiny(cls) -> "CLAPConfig":
+    def htsat_tiny(cls) -> CLAPConfig:
         """HTSAT-tiny configuration (laion/clap-htsat-fused)."""
         return cls(
             audio=CLAPAudioConfig(
@@ -121,7 +121,7 @@ class CLAPConfig:
         )
 
     @classmethod
-    def htsat_base(cls) -> "CLAPConfig":
+    def htsat_base(cls) -> CLAPConfig:
         """HTSAT-base configuration (larger_clap_*)."""
         return cls(
             audio=CLAPAudioConfig(
@@ -131,7 +131,7 @@ class CLAPConfig:
         )
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "CLAPConfig":
+    def from_dict(cls, d: dict[str, Any]) -> CLAPConfig:
         """Create config from dictionary.
 
         Handles nested audio/text configs.

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 import mlx.core as mx
@@ -48,7 +47,7 @@ class MultiHeadAttention(nn.Module):
         x: mx.array,
         xa: mx.array | None = None,
         mask: mx.array | None = None,
-        kv_cache: "KVCache | None" = None,
+        kv_cache: KVCache | None = None,
         layer_idx: int = 0,
     ) -> tuple[mx.array, None]:
         """Forward pass with optional KV caching.
@@ -178,7 +177,7 @@ class ResidualAttentionBlock(nn.Module):
         x: mx.array,
         xa: mx.array | None = None,
         mask: mx.array | None = None,
-        kv_cache: "KVCache | None" = None,
+        kv_cache: KVCache | None = None,
         layer_idx: int = 0,
     ) -> mx.array:
         """Forward pass.

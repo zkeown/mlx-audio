@@ -53,7 +53,7 @@ class AudioEncoder(nn.Module):
         ln_post: Final layer normalization
     """
 
-    def __init__(self, config: "WhisperConfig"):
+    def __init__(self, config: WhisperConfig):
         """Initialize audio encoder.
 
         Args:

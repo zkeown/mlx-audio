@@ -63,7 +63,7 @@ class DelayPatternScheduler:
             Delayed codes [B, K, T + K - 1]
         """
         batch_size, num_codebooks, seq_length = codes.shape
-        delayed_length = seq_length + num_codebooks - 1
+        seq_length + num_codebooks - 1
 
         # Build delayed codes by padding each codebook appropriately
         delayed_list = []
@@ -166,7 +166,7 @@ class MusicGenLMHead(nn.Module):
     Projects hidden states to logits for each codebook independently.
     """
 
-    def __init__(self, config: "MusicGenConfig"):
+    def __init__(self, config: MusicGenConfig):
         """Initialize LM head.
 
         Args:

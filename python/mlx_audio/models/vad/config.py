@@ -48,7 +48,7 @@ class VADConfig(ModelConfig):
     }
 
     @classmethod
-    def silero_vad_16k(cls) -> "VADConfig":
+    def silero_vad_16k(cls) -> VADConfig:
         """Silero VAD configuration for 16kHz audio."""
         return cls(
             sample_rate=16000,
@@ -59,7 +59,7 @@ class VADConfig(ModelConfig):
         )
 
     @classmethod
-    def silero_vad_8k(cls) -> "VADConfig":
+    def silero_vad_8k(cls) -> VADConfig:
         """Silero VAD configuration for 8kHz audio."""
         return cls(
             sample_rate=8000,

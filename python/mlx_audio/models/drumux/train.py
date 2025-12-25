@@ -17,9 +17,8 @@ from mlx_audio.train.callbacks import (
     RichProgressBar,
 )
 
-from .model import DrumTranscriberConfig
+from .data import EGMDDataset, SpectrogramConfig, compute_class_weights, create_dataloader
 from .train_module import DrumuxTrainModule
-from .data import EGMDDataset, SpectrogramConfig, create_dataloader, compute_class_weights
 
 
 def main():

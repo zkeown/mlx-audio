@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import mlx.core as mx
 
@@ -103,7 +104,7 @@ def sample_next_token(
 
 
 def generate_tokens(
-    model: "ParlerTTS",
+    model: ParlerTTS,
     encoder_hidden_states: mx.array,
     max_new_tokens: int,
     temperature: float = 1.0,
@@ -226,7 +227,7 @@ def generate_tokens(
 
 
 def generate_speech(
-    model: "ParlerTTS",
+    model: ParlerTTS,
     prompt_hidden_states: mx.array,
     description_hidden_states: mx.array | None = None,
     duration: float = 10.0,

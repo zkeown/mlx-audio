@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import gc
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -77,18 +77,14 @@ def get_memory_snapshot() -> MemorySnapshot:
 
 def reset_peak_memory() -> None:
     """Reset peak memory tracker."""
-    try:
+    with suppress(AttributeError):
         mx.metal.reset_peak_memory()
-    except AttributeError:
-        pass
 
 
 def clear_cache() -> None:
     """Clear MLX memory cache."""
-    try:
+    with suppress(AttributeError):
         mx.metal.clear_cache()
-    except AttributeError:
-        pass
     gc.collect()
 
 

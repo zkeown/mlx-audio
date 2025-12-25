@@ -14,7 +14,7 @@ Example:
     >>> similarity = model.similarity(audio_emb, text_emb)
 """
 
-from mlx_audio.models.clap.config import CLAPConfig, CLAPAudioConfig, CLAPTextConfig
+from mlx_audio.models.clap.config import CLAPAudioConfig, CLAPConfig, CLAPTextConfig
 from mlx_audio.models.clap.model import CLAP
 
 __all__ = [

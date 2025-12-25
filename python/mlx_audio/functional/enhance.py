@@ -23,7 +23,7 @@ def enhance(
     method: str = "auto",
     keep_original: bool = False,
     **kwargs,
-) -> "EnhancementResult":
+) -> EnhancementResult:
     """Enhance audio quality by removing noise and artifacts.
 
     Supports both neural enhancement (DeepFilterNet) and simple spectral
@@ -95,10 +95,7 @@ def enhance(
 
     # Determine method
     if method == "auto":
-        if model in ("spectral", "spectral_gate"):
-            use_neural = False
-        else:
-            use_neural = True
+        use_neural = model not in ("spectral", "spectral_gate")
     elif method == "neural":
         use_neural = True
     elif method == "spectral":

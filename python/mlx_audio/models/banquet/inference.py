@@ -5,12 +5,11 @@ Provides chunked inference for processing long audio with overlap-add blending.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import mlx.core as mx
 
 from .banquet import Banquet, BanquetOutput
-from .config import BanquetConfig
 
 
 def apply_model(
@@ -57,7 +56,7 @@ def apply_model(
 
     segment_samples = int(segment * model.config.sample_rate)
 
-    if not split or T <= segment_samples:
+    if not split or segment_samples >= T:
         # Process in single pass
         result = model(mixture, query_embedding)
     else:
@@ -118,10 +117,7 @@ def _chunked_inference(
     weight = _create_weight_window(segment_samples)
 
     # Calculate number of chunks
-    if T <= segment_samples:
-        num_chunks = 1
-    else:
-        num_chunks = (T - overlap_samples + stride - 1) // stride
+    num_chunks = 1 if segment_samples >= T else (T - overlap_samples + stride - 1) // stride
 
     # Store last mask and spectrogram (from final chunk for reference)
     last_mask = None

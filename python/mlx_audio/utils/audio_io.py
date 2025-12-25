@@ -153,7 +153,7 @@ def save_audio_file(
 
 
 def normalize_audio_input(
-    audio: "str | Path | np.ndarray | mx.array",
+    audio: str | Path | np.ndarray | mx.array,
     sample_rate: int | None = None,
     mono: bool = False,
 ) -> tuple[np.ndarray, int]:

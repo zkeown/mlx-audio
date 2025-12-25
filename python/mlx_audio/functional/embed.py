@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from mlx_audio.constants import CLAP_SAMPLE_RATE
-from mlx_audio.functional._audio import load_audio_input, ensure_mono_batch
+from mlx_audio.functional._audio import ensure_mono_batch, load_audio_input
 from mlx_audio.types.results import CLAPEmbeddingResult
 
 # Re-export for backward compatibility
@@ -18,7 +18,7 @@ __all__ = ["embed", "CLAPEmbeddingResult", "_tokenize_text"]
 
 
 def embed(
-    audio: str | Path | "np.ndarray" | "mx.array" | None = None,
+    audio: str | Path | np.ndarray | mx.array | None = None,
     text: str | list[str] | None = None,
     *,
     model: str = "clap-htsat-fused",
@@ -66,11 +66,9 @@ def embed(
         >>> result = embed(text=["music", "speech", "noise"])
         >>> result.text_embeds  # [3, 512]
     """
-    import mlx.core as mx
-    import numpy as np
 
-    from mlx_audio.models.clap import CLAP
     from mlx_audio.hub.cache import get_cache
+    from mlx_audio.models.clap import CLAP
 
     if audio is None and text is None:
         from mlx_audio.exceptions import ConfigurationError
@@ -155,7 +153,7 @@ def _get_roberta_tokenizer():
 _ROBERTA_TOKENIZER = None
 
 
-def _tokenize_text(texts: list[str], max_length: int = 77) -> tuple["mx.array", "mx.array"]:
+def _tokenize_text(texts: list[str], max_length: int = 77) -> tuple[mx.array, mx.array]:
     """Tokenize text using RoBERTa tokenizer.
 
     Args:

@@ -62,9 +62,8 @@ class HTDemucsConverter(WeightConverter):
         shape = np_array.shape
 
         # 2D weights: attention in_proj_weight only
-        if len(shape) == 2:
-            if re.search(r"\.in_proj_weight$", key):
-                return np_array.T
+        if len(shape) == 2 and re.search(r"\.in_proj_weight$", key):
+            return np_array.T
 
         # 4D weights: Conv2d and ConvTranspose2d
         if len(shape) == 4 and key.endswith('.weight'):
@@ -133,7 +132,7 @@ def convert_from_demucs_package(
     Returns:
         Path to converted model directory
     """
-    from mlx_audio.exceptions import WeightConversionError, ConfigurationError
+    from mlx_audio.exceptions import ConfigurationError, WeightConversionError
 
     try:
         from demucs.pretrained import get_model
@@ -343,7 +342,7 @@ def convert_bag_from_demucs_package(
     Returns:
         Path to converted bag directory
     """
-    from mlx_audio.exceptions import WeightConversionError, ConfigurationError
+    from mlx_audio.exceptions import ConfigurationError, WeightConversionError
 
     try:
         from demucs.pretrained import get_model

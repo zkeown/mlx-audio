@@ -93,6 +93,13 @@ except (ImportError, PackageNotFoundError):
 # Import C++ extension availability flag for external use
 from ._extension import HAS_CPP_EXT as _HAS_CPP_EXT  # noqa: F401
 
+# Beat tracking
+from .beat import (
+    beat_track,
+    plp,
+    tempo,
+)
+
 # Decibel conversions
 from .convert import (
     amplitude_to_db,
@@ -147,6 +154,13 @@ from .mfcc import (
     mfcc,
 )
 
+# Onset detection
+from .onset import (
+    onset_detect,
+    onset_strength,
+    onset_strength_multi,
+)
+
 # Pitch and periodicity
 from .pitch import (
     autocorrelation,
@@ -156,30 +170,16 @@ from .pitch import (
     yin,
 )
 
-# Onset detection
-from .onset import (
-    onset_detect,
-    onset_strength,
-    onset_strength_multi,
-)
-
-# Beat tracking
-from .beat import (
-    beat_track,
-    plp,
-    tempo,
+# Resampling
+from .resample import (
+    resample,
+    resample_poly,
 )
 
 # Spectral gating (noise reduction)
 from .spectral_gate import (
     spectral_gate,
     spectral_gate_adaptive,
-)
-
-# Resampling
-from .resample import (
-    resample,
-    resample_poly,
 )
 
 # Core STFT operations

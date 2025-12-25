@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import mlx.core as mx
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 
 
 def transcribe(
-    audio: str | Path | "np.ndarray" | "mx.array",
+    audio: str | Path | np.ndarray | mx.array,
     *,
     model: str = "whisper-large-v3-turbo",
     language: str | None = None,
@@ -26,7 +27,7 @@ def transcribe(
     output_format: str = "txt",
     progress_callback: Callable[[float], None] | None = None,
     **kwargs,
-) -> "TranscriptionResult":
+) -> TranscriptionResult:
     """Transcribe speech to text.
 
     This is the main entry point for speech-to-text transcription.
@@ -68,9 +69,9 @@ def transcribe(
         ...     print(f"[{seg.start:.2f} - {seg.end:.2f}] {seg.text}")
     """
     # Import here to avoid circular imports and allow lazy loading
-    from mlx_audio.models.whisper import Whisper, WhisperTokenizer, apply_model
-    from mlx_audio.hub.cache import get_cache
     from mlx_audio.functional._audio import load_audio_input
+    from mlx_audio.hub.cache import get_cache
+    from mlx_audio.models.whisper import Whisper, WhisperTokenizer, apply_model
 
     # Load audio using shared utility (16kHz default for Whisper, mono)
     audio_array, sample_rate = load_audio_input(

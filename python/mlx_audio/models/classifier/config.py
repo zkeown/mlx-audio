@@ -102,10 +102,7 @@ class ClassifierConfig:
 
         # Parse head config
         head_dict = d.pop("head", {})
-        if isinstance(head_dict, dict):
-            head = MLPHeadConfig(**head_dict)
-        else:
-            head = head_dict
+        head = MLPHeadConfig(**head_dict) if isinstance(head_dict, dict) else head_dict
 
         # Parse task mode
         task = d.pop("task", "classification")

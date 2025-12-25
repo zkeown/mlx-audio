@@ -10,11 +10,12 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_audio.models.whisper.config import WhisperConfig
-from mlx_audio.models.whisper.layers.encoder import AudioEncoder
 from mlx_audio.models.whisper.layers.decoder import TextDecoder
+from mlx_audio.models.whisper.layers.encoder import AudioEncoder
 
 if TYPE_CHECKING:
     from mlx_audio.models.whisper.kv_cache import KVCache
+    from mlx_audio.models.whisper.tokenizer import WhisperTokenizer
 
 
 class Whisper(nn.Module):
@@ -70,7 +71,7 @@ class Whisper(nn.Module):
         self,
         tokens: mx.array,
         audio_features: mx.array,
-        kv_cache: "KVCache | None" = None,
+        kv_cache: KVCache | None = None,
     ) -> mx.array:
         """Decode tokens to logits.
 
@@ -106,7 +107,7 @@ class Whisper(nn.Module):
     def detect_language(
         self,
         mel: mx.array,
-        tokenizer: "WhisperTokenizer",
+        tokenizer: WhisperTokenizer,
     ) -> tuple[str, float]:
         """Detect the language of the audio.
 
@@ -163,7 +164,7 @@ class Whisper(nn.Module):
         cls,
         path: str | Path,
         **kwargs,
-    ) -> "Whisper":
+    ) -> Whisper:
         """Load pretrained Whisper model.
 
         Args:

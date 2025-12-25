@@ -32,17 +32,17 @@ class EcapaTDNNConfig:
     global_context: bool = True
 
     @classmethod
-    def ecapa_tdnn_512(cls) -> "EcapaTDNNConfig":
+    def ecapa_tdnn_512(cls) -> EcapaTDNNConfig:
         """Standard ECAPA-TDNN with 512-dim embeddings."""
         return cls(lin_neurons=512)
 
     @classmethod
-    def ecapa_tdnn_192(cls) -> "EcapaTDNNConfig":
+    def ecapa_tdnn_192(cls) -> EcapaTDNNConfig:
         """Compact ECAPA-TDNN with 192-dim embeddings."""
         return cls(lin_neurons=192)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "EcapaTDNNConfig":
+    def from_dict(cls, d: dict) -> EcapaTDNNConfig:
         """Create config from dictionary."""
         # Handle tuple fields
         result = {}
@@ -91,12 +91,12 @@ class DiarizationConfig:
     fmax: float = 7600.0
 
     @classmethod
-    def default(cls) -> "DiarizationConfig":
+    def default(cls) -> DiarizationConfig:
         """Default configuration."""
         return cls()
 
     @classmethod
-    def from_dict(cls, d: dict) -> "DiarizationConfig":
+    def from_dict(cls, d: dict) -> DiarizationConfig:
         """Create config from dictionary."""
         embedding_dict = d.pop("embedding", {})
         embedding = EcapaTDNNConfig.from_dict(embedding_dict)

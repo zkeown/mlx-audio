@@ -190,10 +190,7 @@ class SERes2NetBlock(nn.Module):
             Output of shape (batch, time, out_channels).
         """
         # Shortcut
-        if self.shortcut is not None:
-            residual = self.shortcut(x)
-        else:
-            residual = x
+        residual = self.shortcut(x) if self.shortcut is not None else x
 
         # Main path
         out = nn.relu(self.bn1(self.conv1(x)))

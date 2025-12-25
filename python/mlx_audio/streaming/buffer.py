@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-from typing import Literal
 
 import mlx.core as mx
 import numpy as np

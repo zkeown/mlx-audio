@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 from typing import TYPE_CHECKING
 
 import mlx.core as mx
@@ -166,10 +165,7 @@ class SpeakerSink:
             return False
 
         # Handle multi-source output [sources, channels, samples]
-        if isinstance(audio, mx.array):
-            audio_np = np.array(audio)
-        else:
-            audio_np = audio
+        audio_np = np.array(audio) if isinstance(audio, mx.array) else audio
 
         if audio_np.ndim == 3:
             # Sum sources or select first source

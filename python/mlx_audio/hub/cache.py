@@ -11,7 +11,7 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Type
+from typing import Any
 
 
 @dataclass
@@ -90,7 +90,7 @@ class ModelCache:
         # Check for short model names (htdemucs_ft, etc.)
         if "/" not in repo_id:
             # Try to resolve from registry
-            from mlx_audio.hub.registry import ModelRegistry, TaskType
+            from mlx_audio.hub.registry import ModelRegistry
 
             registry = ModelRegistry.get()
             spec = registry.get_spec(repo_id)
@@ -118,7 +118,7 @@ class ModelCache:
     def get_model(
         self,
         model_id: str,
-        model_class: Type,
+        model_class: type,
         *,
         revision: str | None = None,
         force_reload: bool = False,

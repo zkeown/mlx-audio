@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Union
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Union
 
 import mlx.core as mx
 
@@ -61,7 +62,7 @@ def apply_model(
 
     segment_samples = int(segment * model.config.samplerate)
 
-    if not split or T <= segment_samples:
+    if not split or segment_samples >= T:
         # Process in single pass
         stems = model(mix)
     else:
@@ -118,10 +119,7 @@ def _chunked_inference(
 
     # Calculate number of chunks - ensure we cover all samples
     # The last chunk may extend past T but we'll handle padding
-    if T <= segment_samples:
-        num_chunks = 1
-    else:
-        num_chunks = (T - overlap_samples + stride - 1) // stride
+    num_chunks = 1 if segment_samples >= T else (T - overlap_samples + stride - 1) // stride
 
     for chunk_idx in range(num_chunks):
         offset = chunk_idx * stride

@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from mlx_audio.constants import (
-    WHISPER_SAMPLE_RATE,
-    WHISPER_N_FFT,
-    WHISPER_HOP_LENGTH,
     WHISPER_CHUNK_LENGTH,
-    WHISPER_N_MELS,
-    WHISPER_V3_N_MELS,
+    WHISPER_HOP_LENGTH,
     WHISPER_N_AUDIO_CTX,
+    WHISPER_N_FFT,
+    WHISPER_N_MELS,
     WHISPER_N_TEXT_CTX,
+    WHISPER_SAMPLE_RATE,
+    WHISPER_V3_N_MELS,
 )
 from mlx_audio.models.base import ModelConfig
 
@@ -76,7 +75,7 @@ class WhisperConfig(ModelConfig):
         return self.n_samples // self.hop_length
 
     @classmethod
-    def tiny(cls) -> "WhisperConfig":
+    def tiny(cls) -> WhisperConfig:
         """Whisper tiny configuration (39M parameters)."""
         return cls(
             n_mels=WHISPER_N_MELS,
@@ -89,14 +88,14 @@ class WhisperConfig(ModelConfig):
         )
 
     @classmethod
-    def tiny_en(cls) -> "WhisperConfig":
+    def tiny_en(cls) -> WhisperConfig:
         """Whisper tiny.en configuration (English-only, 39M parameters)."""
         config = cls.tiny()
         config.n_vocab = 51864  # English-only vocab
         return config
 
     @classmethod
-    def base(cls) -> "WhisperConfig":
+    def base(cls) -> WhisperConfig:
         """Whisper base configuration (74M parameters)."""
         return cls(
             n_mels=WHISPER_N_MELS,
@@ -109,14 +108,14 @@ class WhisperConfig(ModelConfig):
         )
 
     @classmethod
-    def base_en(cls) -> "WhisperConfig":
+    def base_en(cls) -> WhisperConfig:
         """Whisper base.en configuration (English-only, 74M parameters)."""
         config = cls.base()
         config.n_vocab = 51864
         return config
 
     @classmethod
-    def small(cls) -> "WhisperConfig":
+    def small(cls) -> WhisperConfig:
         """Whisper small configuration (244M parameters)."""
         return cls(
             n_mels=WHISPER_N_MELS,
@@ -129,14 +128,14 @@ class WhisperConfig(ModelConfig):
         )
 
     @classmethod
-    def small_en(cls) -> "WhisperConfig":
+    def small_en(cls) -> WhisperConfig:
         """Whisper small.en configuration (English-only, 244M parameters)."""
         config = cls.small()
         config.n_vocab = 51864
         return config
 
     @classmethod
-    def medium(cls) -> "WhisperConfig":
+    def medium(cls) -> WhisperConfig:
         """Whisper medium configuration (769M parameters)."""
         return cls(
             n_mels=WHISPER_N_MELS,
@@ -149,14 +148,14 @@ class WhisperConfig(ModelConfig):
         )
 
     @classmethod
-    def medium_en(cls) -> "WhisperConfig":
+    def medium_en(cls) -> WhisperConfig:
         """Whisper medium.en configuration (English-only, 769M parameters)."""
         config = cls.medium()
         config.n_vocab = 51864
         return config
 
     @classmethod
-    def large(cls) -> "WhisperConfig":
+    def large(cls) -> WhisperConfig:
         """Whisper large configuration (1.5B parameters)."""
         return cls(
             n_mels=WHISPER_N_MELS,
@@ -169,19 +168,19 @@ class WhisperConfig(ModelConfig):
         )
 
     @classmethod
-    def large_v2(cls) -> "WhisperConfig":
+    def large_v2(cls) -> WhisperConfig:
         """Whisper large-v2 configuration (1.5B parameters, improved training)."""
         return cls.large()
 
     @classmethod
-    def large_v3(cls) -> "WhisperConfig":
+    def large_v3(cls) -> WhisperConfig:
         """Whisper large-v3 configuration (1.5B parameters, 128 mel bins)."""
         config = cls.large()
         config.n_mels = WHISPER_V3_N_MELS
         return config
 
     @classmethod
-    def large_v3_turbo(cls) -> "WhisperConfig":
+    def large_v3_turbo(cls) -> WhisperConfig:
         """Whisper large-v3-turbo configuration (809M parameters).
 
         Uses large-v3 encoder (32 layers) with only 4 decoder layers,
@@ -199,12 +198,12 @@ class WhisperConfig(ModelConfig):
 
     # Aliases
     @classmethod
-    def turbo(cls) -> "WhisperConfig":
+    def turbo(cls) -> WhisperConfig:
         """Alias for large_v3_turbo."""
         return cls.large_v3_turbo()
 
     @classmethod
-    def from_name(cls, name: str) -> "WhisperConfig":
+    def from_name(cls, name: str) -> WhisperConfig:
         """Create config from model name.
 
         Args:

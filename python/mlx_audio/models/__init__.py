@@ -30,52 +30,38 @@ Example:
 """
 
 # Source Separation
-from mlx_audio.models.demucs import (
-    HTDemucs,
-    HTDemucsConfig,
-    BagOfModels,
-    apply_model as apply_demucs,
-)
 from mlx_audio.models.banquet import (
     Banquet,
     BanquetConfig,
+)
+from mlx_audio.models.banquet import (
     apply_model as apply_banquet,
-)
-
-# Speech Processing
-from mlx_audio.models.whisper import (
-    Whisper,
-    WhisperConfig,
-    WhisperTokenizer,
-    apply_model as apply_whisper,
-)
-from mlx_audio.models.vad import (
-    SileroVAD,
-    VADConfig,
-)
-from mlx_audio.models.diarization import (
-    ECAPATDNN,
-    EcapaTDNNConfig,
-    SpeakerDiarization,
-    DiarizationConfig,
 )
 
 # Audio-Text
 from mlx_audio.models.clap import (
     CLAP,
-    CLAPConfig,
     CLAPAudioConfig,
+    CLAPConfig,
     CLAPTextConfig,
 )
-
-# Audio Generation
-from mlx_audio.models.musicgen import (
-    MusicGen,
-    MusicGenConfig,
+from mlx_audio.models.classifier import (
+    CLAPClassifier,
+    ClassifierConfig,
 )
-from mlx_audio.models.tts import (
-    ParlerTTS,
-    ParlerTTSConfig,
+from mlx_audio.models.demucs import (
+    BagOfModels,
+    HTDemucs,
+    HTDemucsConfig,
+)
+from mlx_audio.models.demucs import (
+    apply_model as apply_demucs,
+)
+from mlx_audio.models.diarization import (
+    ECAPATDNN,
+    DiarizationConfig,
+    EcapaTDNNConfig,
+    SpeakerDiarization,
 )
 from mlx_audio.models.encodec import (
     EnCodec,
@@ -87,9 +73,29 @@ from mlx_audio.models.enhance import (
     DeepFilterNet,
     DeepFilterNetConfig,
 )
-from mlx_audio.models.classifier import (
-    CLAPClassifier,
-    ClassifierConfig,
+
+# Audio Generation
+from mlx_audio.models.musicgen import (
+    MusicGen,
+    MusicGenConfig,
+)
+from mlx_audio.models.tts import (
+    ParlerTTS,
+    ParlerTTSConfig,
+)
+from mlx_audio.models.vad import (
+    SileroVAD,
+    VADConfig,
+)
+
+# Speech Processing
+from mlx_audio.models.whisper import (
+    Whisper,
+    WhisperConfig,
+    WhisperTokenizer,
+)
+from mlx_audio.models.whisper import (
+    apply_model as apply_whisper,
 )
 
 __all__ = [

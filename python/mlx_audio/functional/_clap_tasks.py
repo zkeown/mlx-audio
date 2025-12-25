@@ -12,18 +12,17 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     import mlx.core as mx
 
-from mlx_audio.constants import CLAP_SAMPLE_RATE
 from mlx_audio.exceptions import ConfigurationError
 
 
 def clap_zero_shot_inference(
-    audio: "mx.array",
+    audio: mx.array,
     sample_rate: int,
     model: str,
     labels: list[str],
     task_type: Literal["classify", "tag"],
     **kwargs,
-) -> tuple["mx.array", int]:
+) -> tuple[mx.array, int]:
     """Perform zero-shot inference using CLAP text-audio similarity.
 
     This function handles the shared logic for both classification (single-label)
@@ -59,8 +58,8 @@ def clap_zero_shot_inference(
             f"Example: {task_type}(audio, {example_arg}={example_values})"
         )
 
-    from mlx_audio.models.clap import CLAP
     from mlx_audio.hub.cache import get_cache
+    from mlx_audio.models.clap import CLAP
 
     # Load CLAP model
     cache = get_cache()
@@ -95,7 +94,7 @@ def clap_zero_shot_inference(
 
 
 def get_top_k_predictions(
-    probs: "mx.array",
+    probs: mx.array,
     labels: list[str],
     top_k: int,
 ) -> tuple[list[str], list[float], str, int]:
@@ -123,7 +122,7 @@ def get_top_k_predictions(
 
 
 def get_active_tags(
-    probs: "mx.array",
+    probs: mx.array,
     tags: list[str],
     threshold: float,
 ) -> list[str]:

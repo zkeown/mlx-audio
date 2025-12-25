@@ -276,10 +276,7 @@ class RichProgressBar(Callback):
 
         # Check TERM environment variable
         term = os.environ.get("TERM", "")
-        if term in ("dumb", ""):
-            return False
-
-        return True
+        return term not in ("dumb", "")
 
     def _color(self, text: str, color: str) -> str:
         """Apply ANSI color to text if colors enabled."""

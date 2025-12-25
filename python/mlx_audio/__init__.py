@@ -26,24 +26,26 @@ Submodules:
     - mlx_audio.hub: Model registry and caching
 """
 
-from mlx_audio._version import __version__
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-from typing import TYPE_CHECKING, Any, Callable
+from mlx_audio._version import __version__
 
 if TYPE_CHECKING:
     import mlx.core as mx
     import numpy as np
+
     from mlx_audio.types import (
-        SeparationResult,
-        TranscriptionResult,
-        GenerationResult,
         CLAPEmbeddingResult,
-        VADResult,
-        EnhancementResult,
-        SpeechResult,
-        DiarizationResult,
         ClassificationResult,
+        DiarizationResult,
+        EnhancementResult,
+        GenerationResult,
+        SeparationResult,
+        SpeechResult,
         TaggingResult,
+        TranscriptionResult,
+        VADResult,
     )
 
 # Type alias for audio input
@@ -549,6 +551,14 @@ def tag(
 # LICENSE UTILITIES (Re-exported for convenience)
 # =============================================================================
 
+# =============================================================================
+# DATA LOADING (Re-exported for convenience)
+# =============================================================================
+from mlx_audio.data import (
+    DataLoader,
+    Dataset,
+    StreamingDataset,
+)
 from mlx_audio.hub.licenses import (
     is_commercial_safe,
     list_commercial_safe_models,
@@ -558,34 +568,22 @@ from mlx_audio.hub.licenses import (
 # =============================================================================
 # PRIMITIVES (Re-exported for convenience)
 # =============================================================================
-
 from mlx_audio.primitives import (
-    stft,
+    griffinlim,
     istft,
     melspectrogram,
     mfcc,
     resample,
-    griffinlim,
-)
-
-# =============================================================================
-# DATA LOADING (Re-exported for convenience)
-# =============================================================================
-
-from mlx_audio.data import (
-    DataLoader,
-    Dataset,
-    StreamingDataset,
+    stft,
 )
 
 # =============================================================================
 # TRAINING (Re-exported for convenience)
 # =============================================================================
-
 from mlx_audio.train import (
-    TrainModule,
-    Trainer,
     OptimizerConfig,
+    Trainer,
+    TrainModule,
 )
 
 # =============================================================================

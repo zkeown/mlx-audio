@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import mlx.core as mx
@@ -25,7 +26,7 @@ def speak(
     output_file: str | Path | None = None,
     progress_callback: Callable[[float], None] | None = None,
     **kwargs,
-) -> "SpeechResult":
+) -> SpeechResult:
     """Convert text to speech.
 
     This is the main entry point for text-to-speech synthesis using Parler-TTS.
@@ -79,8 +80,8 @@ def speak(
     import mlx.core as mx
     import numpy as np
 
-    from mlx_audio.models.tts import ParlerTTS
     from mlx_audio.hub.cache import get_cache
+    from mlx_audio.models.tts import ParlerTTS
     from mlx_audio.types.results import SpeechResult
 
     # Load model with caching
@@ -166,7 +167,7 @@ def _encode_text(
     text: str,
     config,
     encoder_type: str = "prompt",
-) -> "mx.array":
+) -> mx.array:
     """Encode text using T5.
 
     Args:
@@ -188,8 +189,8 @@ def _encode_text(
 
     try:
         # Try to use transformers for T5
-        from transformers import T5Tokenizer, T5EncoderModel
         import torch
+        from transformers import T5EncoderModel, T5Tokenizer
 
         tokenizer = T5Tokenizer.from_pretrained(encoder_name)
         encoder = T5EncoderModel.from_pretrained(encoder_name)
@@ -219,7 +220,7 @@ def _encode_text(
         warnings.warn(
             "transformers library not available. "
             "Using dummy text embeddings. Install transformers for proper text encoding: "
-            "pip install transformers"
+            "pip install transformers", stacklevel=2
         )
 
         # Create random embeddings as placeholder
@@ -234,10 +235,10 @@ def _encode_text(
 
 
 def _adjust_speed(
-    audio: "mx.array",
+    audio: mx.array,
     speed: float,
     sample_rate: int,
-) -> "mx.array":
+) -> mx.array:
     """Adjust audio playback speed via resampling.
 
     Args:

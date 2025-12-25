@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 import mlx.core as mx
@@ -137,7 +136,7 @@ class MusicGenDecoderBlock(nn.Module):
         - LayerNorm -> FFN -> Residual
     """
 
-    def __init__(self, config: "MusicGenConfig"):
+    def __init__(self, config: MusicGenConfig):
         """Initialize decoder block.
 
         Args:
@@ -245,7 +244,7 @@ class MusicGenDecoder(nn.Module):
     Generates audio tokens conditioned on text embeddings.
     """
 
-    def __init__(self, config: "MusicGenConfig"):
+    def __init__(self, config: MusicGenConfig):
         """Initialize decoder.
 
         Args:

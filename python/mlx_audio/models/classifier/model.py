@@ -12,7 +12,6 @@ import mlx.nn as nn
 from mlx_audio.models.classifier.config import (
     ClassifierConfig,
     FreezeMode,
-    MLPHeadConfig,
     TaskMode,
 )
 from mlx_audio.models.classifier.layers.mlp_head import MLPHead
@@ -49,7 +48,7 @@ class CLAPClassifier(nn.Module):
     def __init__(
         self,
         config: ClassifierConfig | None = None,
-        clap: "CLAP | None" = None,
+        clap: CLAP | None = None,
     ) -> None:
         super().__init__()
         if config is None:
@@ -60,8 +59,8 @@ class CLAPClassifier(nn.Module):
         if clap is not None:
             self.clap = clap
         else:
-            from mlx_audio.models.clap import CLAP
             from mlx_audio.hub.cache import get_cache
+            from mlx_audio.models.clap import CLAP
 
             cache = get_cache()
             self.clap = cache.get_model(config.clap_model, CLAP)

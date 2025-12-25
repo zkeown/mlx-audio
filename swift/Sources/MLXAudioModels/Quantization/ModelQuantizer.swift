@@ -27,7 +27,7 @@ public enum ModelQuantizer {
         in module: Module,
         config: QuantizationConfig,
         keyPrefix: String = ""
-    ) -> [String: QuantizedLinear] {
+    ) throws -> [String: QuantizedLinear] {
         var quantizedLayers: [String: QuantizedLinear] = [:]
 
         // Get all parameters to find Linear layers
@@ -62,7 +62,7 @@ public enum ModelQuantizer {
                         config: config
                     )
 
-                    quantized.quantize(from: weight)
+                    try quantized.quantize(from: weight)
 
                     if hasBias, let bias = flatParams[biasKey] {
                         quantized.bias = bias.asType(.float16)
@@ -229,8 +229,8 @@ public enum ModelQuantizer {
     public static func maxQuantizationError(
         original: MLXArray,
         quantized: QuantizedLinear
-    ) -> Float {
-        let dequantized = quantized.dequantize()
+    ) throws -> Float {
+        let dequantized = try quantized.dequantize()
         let diff = MLX.abs(original.asType(.float16) - dequantized)
         return MLX.max(diff).item(Float.self)
     }
@@ -239,8 +239,8 @@ public enum ModelQuantizer {
     public static func meanQuantizationError(
         original: MLXArray,
         quantized: QuantizedLinear
-    ) -> Float {
-        let dequantized = quantized.dequantize()
+    ) throws -> Float {
+        let dequantized = try quantized.dequantize()
         let diff = MLX.abs(original.asType(.float16) - dequantized)
         return MLX.mean(diff).item(Float.self)
     }

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from mlx_audio.constants import CLAP_SAMPLE_RATE
-from mlx_audio.functional._audio import load_audio_input, ensure_mono_batch
+from mlx_audio.functional._audio import ensure_mono_batch, load_audio_input
 from mlx_audio.functional._clap_tasks import (
     clap_zero_shot_inference,
     get_top_k_predictions,
@@ -20,7 +20,7 @@ from mlx_audio.types.results import ClassificationResult
 
 
 def classify(
-    audio: str | Path | "np.ndarray" | "mx.array",
+    audio: str | Path | np.ndarray | mx.array,
     *,
     model: str = "clap-htsat-fused",
     labels: list[str] | None = None,
@@ -83,7 +83,7 @@ def classify(
 
 
 def _zero_shot_classify(
-    audio: "mx.array",
+    audio: mx.array,
     sample_rate: int,
     model: str,
     labels: list[str] | None,
@@ -118,7 +118,7 @@ def _zero_shot_classify(
 
 
 def _trained_classify(
-    audio: "mx.array",
+    audio: mx.array,
     sample_rate: int,
     model: str,
     labels: list[str] | None,
@@ -126,8 +126,9 @@ def _trained_classify(
     **kwargs,
 ) -> ClassificationResult:
     """Perform classification using a trained classifier."""
-    import mlx.core as mx
     from pathlib import Path
+
+    import mlx.core as mx
 
     from mlx_audio.models.classifier import CLAPClassifier
 

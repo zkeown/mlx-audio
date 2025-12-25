@@ -10,11 +10,12 @@ from __future__ import annotations
 import mlx.core as mx
 import numpy as np
 
+from mlx_audio.constants import DIVISION_EPSILON
+
 from ._extension import HAS_CPP_EXT, _ext
 from ._validation import validate_positive, validate_range
 from .framing import frame
 from .stft import magnitude, stft
-from mlx_audio.constants import DIVISION_EPSILON
 
 
 def _get_frequencies(sr: int, n_fft: int) -> mx.array:

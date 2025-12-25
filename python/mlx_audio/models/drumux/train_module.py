@@ -6,10 +6,9 @@ Integrates with mlx-audio's training framework.
 from __future__ import annotations
 
 import mlx.core as mx
-import mlx.nn as nn
 import mlx.optimizers as optim
 
-from mlx_audio.train.module import TrainModule, OptimizerConfig
+from mlx_audio.train.module import OptimizerConfig, TrainModule
 from mlx_audio.train.schedulers import WarmupCosineScheduler
 
 from .model import DrumTranscriber, DrumTranscriberConfig, create_model
@@ -17,7 +16,7 @@ from .model import DrumTranscriber, DrumTranscriberConfig, create_model
 
 class PositiveWeightedBCELoss:
     """Binary cross-entropy with class-specific positive weights.
-    
+
     Handles extreme class imbalance in drum transcription where
     positives are ~0.3% of all frames.
     """
@@ -28,7 +27,7 @@ class PositiveWeightedBCELoss:
         label_smoothing: float = 0.0,
     ):
         """Initialize loss.
-        
+
         Args:
             pos_weight: Weight for positive class. Can be:
                 - float: Same weight for all classes
@@ -40,11 +39,11 @@ class PositiveWeightedBCELoss:
 
     def __call__(self, logits: mx.array, targets: mx.array) -> mx.array:
         """Compute weighted BCE loss.
-        
+
         Args:
             logits: Raw logits (batch, time, num_classes)
             targets: Binary targets (batch, time, num_classes)
-            
+
         Returns:
             Scalar loss
         """
@@ -67,7 +66,7 @@ class PositiveWeightedBCELoss:
 
 class MaskedMSELoss:
     """MSE loss computed only where mask is positive.
-    
+
     For velocity prediction - only compute loss where there are onsets.
     """
 
@@ -112,7 +111,7 @@ class DrumuxTrainModule(TrainModule):
         total_steps: int | None = None,
     ):
         """Initialize training module.
-        
+
         Args:
             config: Model configuration (overrides preset if provided)
             preset: Model preset if config not provided

@@ -8,7 +8,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 if TYPE_CHECKING:
-    from mlx_audio.models.clap.config import CLAPAudioConfig
+    pass
 
 
 class AFFBlock(nn.Module):

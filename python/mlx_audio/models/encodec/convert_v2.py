@@ -9,7 +9,6 @@ Properly handles:
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import mlx.core as mx
@@ -50,7 +49,6 @@ def convert_hf_to_mlx(hf_model) -> dict[str, mx.array]:
     Returns:
         Dictionary of MLX arrays
     """
-    import torch
 
     mlx_weights = {}
 

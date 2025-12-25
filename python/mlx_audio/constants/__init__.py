@@ -13,11 +13,11 @@ Submodules:
 
 from __future__ import annotations
 
-from mlx_audio.constants.sample_rates import *
-from mlx_audio.constants.audio_processing import *
-from mlx_audio.constants.spectral import *
 from mlx_audio.constants.algorithms import *
+from mlx_audio.constants.audio_processing import *
 from mlx_audio.constants.paths import *
+from mlx_audio.constants.sample_rates import *
+from mlx_audio.constants.spectral import *
 
 __all__ = [
     # Sample rates

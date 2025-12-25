@@ -12,13 +12,13 @@ from mlx_audio.models.base.protocol import (
     AudioModel,
     EncoderModel,
     GenerativeModel,
-    StreamingModel,
     SeparationModel,
+    StreamingModel,
     TranscriptionModel,
 )
 from mlx_audio.models.base.weight_converter import (
-    WeightConverter,
     IdentityConverter,
+    WeightConverter,
 )
 
 __all__ = [

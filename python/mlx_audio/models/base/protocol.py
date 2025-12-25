@@ -28,10 +28,10 @@ class AudioModel(Protocol):
         ...     return model(audio)
     """
 
-    config: "ModelConfig"
+    config: ModelConfig
     """Model configuration object."""
 
-    def __call__(self, audio: "mx.array", **kwargs: Any) -> "mx.array":
+    def __call__(self, audio: mx.array, **kwargs: Any) -> mx.array:
         """Run inference on audio input.
 
         Args:
@@ -44,7 +44,7 @@ class AudioModel(Protocol):
         ...
 
     @classmethod
-    def from_pretrained(cls, path: str, **kwargs: Any) -> "AudioModel":
+    def from_pretrained(cls, path: str, **kwargs: Any) -> AudioModel:
         """Load pretrained weights from a path or model name.
 
         Args:
@@ -70,7 +70,7 @@ class AudioModel(Protocol):
 class EncoderModel(Protocol):
     """Protocol for models that encode audio to embeddings."""
 
-    def encode(self, audio: "mx.array", **kwargs: Any) -> "mx.array":
+    def encode(self, audio: mx.array, **kwargs: Any) -> mx.array:
         """Encode audio to embedding vector(s).
 
         Args:
@@ -92,7 +92,7 @@ class GenerativeModel(Protocol):
         prompt: Any,
         duration: float = 10.0,
         **kwargs: Any,
-    ) -> "mx.array":
+    ) -> mx.array:
         """Generate audio from a prompt.
 
         Args:
@@ -112,9 +112,9 @@ class StreamingModel(Protocol):
 
     def process_chunk(
         self,
-        chunk: "mx.array",
+        chunk: mx.array,
         state: Any = None,
-    ) -> tuple["mx.array", Any]:
+    ) -> tuple[mx.array, Any]:
         """Process a single audio chunk.
 
         Args:
@@ -144,7 +144,7 @@ class SeparationModel(Protocol):
         """
         ...
 
-    def separate(self, audio: "mx.array", **kwargs: Any) -> dict[str, "mx.array"]:
+    def separate(self, audio: mx.array, **kwargs: Any) -> dict[str, mx.array]:
         """Separate audio into sources.
 
         Args:
@@ -163,7 +163,7 @@ class TranscriptionModel(Protocol):
 
     def transcribe(
         self,
-        audio: "mx.array",
+        audio: mx.array,
         language: str | None = None,
         **kwargs: Any,
     ) -> str:

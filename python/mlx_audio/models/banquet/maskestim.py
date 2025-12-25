@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
-
 import mlx.core as mx
 import mlx.nn as nn
 
@@ -112,8 +110,8 @@ class OverlappingMaskEstimationModule(nn.Module):
     def __init__(
         self,
         in_channel: int,
-        band_specs: List[Tuple[int, int]],
-        freq_weights: List[mx.array],
+        band_specs: list[tuple[int, int]],
+        freq_weights: list[mx.array],
         n_freq: int,
         emb_dim: int,
         mlp_dim: int,
@@ -191,7 +189,7 @@ class OverlappingMaskEstimationModule(nn.Module):
             if self.complex_mask:
                 # masks[:, :, fstart:fend, :, :] += mask
                 # MLX doesn't support slice assignment, so we use scatter
-                indices = mx.arange(fstart, fend)
+                mx.arange(fstart, fend)
                 masks = masks.at[:, :, fstart:fend, :, :].add(mask)
             else:
                 masks = masks.at[:, :, fstart:fend, :].add(mask)
@@ -210,7 +208,7 @@ class OverlappingMaskEstimationModule(nn.Module):
         hidden_activation: str = "Tanh",
         complex_mask: bool = True,
         use_freq_weights: bool = True,
-    ) -> "OverlappingMaskEstimationModule":
+    ) -> OverlappingMaskEstimationModule:
         """Create OverlappingMaskEstimationModule from configuration."""
         spec = MusicalBandsplitSpecification(
             nfft=n_fft,

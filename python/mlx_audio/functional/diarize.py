@@ -23,9 +23,9 @@ def diarize(
     max_speakers: int | None = None,
     sample_rate: int | None = None,
     return_embeddings: bool = False,
-    transcription: "TranscriptionResult | None" = None,
+    transcription: TranscriptionResult | None = None,
     **kwargs,
-) -> "DiarizationResult":
+) -> DiarizationResult:
     """Identify who spoke when in audio.
 
     Speaker diarization segments audio by speaker identity, answering
@@ -130,7 +130,7 @@ def diarize(
         segments = _assign_speakers_to_transcript(segments, transcription)
 
     # Count unique speakers
-    unique_speakers_set = set(seg.speaker for seg in segments)
+    unique_speakers_set = {seg.speaker for seg in segments}
 
     return DiarizationResult(
         segments=segments,
@@ -142,7 +142,7 @@ def diarize(
 
 def _assign_speakers_to_transcript(
     diarization_segments: list,
-    transcription: "TranscriptionResult",
+    transcription: TranscriptionResult,
 ) -> list:
     """Assign speaker labels to transcription segments.
 

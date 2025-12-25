@@ -31,7 +31,7 @@ class AudioData:
         """Convert to NumPy array."""
         return np.array(self.array)
 
-    def to_mono(self) -> "AudioData":
+    def to_mono(self) -> AudioData:
         """Convert to mono by averaging channels."""
         if len(self.array.shape) == 1:
             return self
@@ -40,7 +40,7 @@ class AudioData:
             sample_rate=self.sample_rate,
         )
 
-    def resample(self, target_rate: int) -> "AudioData":
+    def resample(self, target_rate: int) -> AudioData:
         """Resample to target sample rate."""
         if target_rate == self.sample_rate:
             return self

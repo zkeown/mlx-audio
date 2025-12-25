@@ -30,7 +30,8 @@ def convert_clap_weights(
         Path to converted model directory
     """
     try:
-        from transformers import ClapModel, ClapConfig as HFClapConfig
+        from transformers import ClapConfig as HFClapConfig
+        from transformers import ClapModel
     except ImportError:
         from mlx_audio.exceptions import WeightConversionError
         raise WeightConversionError(

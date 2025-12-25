@@ -14,9 +14,9 @@ import numpy as np
 
 from mlx_audio.constants import WHISPER_CACHE_DIR
 from mlx_audio.utils import (
-    require_transformers,
-    prepare_output_path,
     convert_conv1d_weight,
+    prepare_output_path,
+    require_transformers,
     torch_to_numpy,
 )
 

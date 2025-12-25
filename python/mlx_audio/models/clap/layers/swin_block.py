@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Tuple
-
 import mlx.core as mx
 import mlx.nn as nn
 
@@ -62,7 +60,7 @@ class WindowAttention(nn.Module):
     def __init__(
         self,
         dim: int,
-        window_size: Tuple[int, int],
+        window_size: tuple[int, int],
         num_heads: int,
         qkv_bias: bool = True,
         attn_drop: float = 0.0,
@@ -250,7 +248,7 @@ class SwinTransformerBlock(nn.Module):
             return None
 
         # Calculate attention mask for SW-MSA
-        img_mask = mx.zeros((1, H, W, 1))
+        mx.zeros((1, H, W, 1))
 
         h_slices = (
             slice(0, -self.window_size),
@@ -267,7 +265,7 @@ class SwinTransformerBlock(nn.Module):
         for h in h_slices:
             for w in w_slices:
                 # Create mask region
-                mask_region = mx.ones((1, len(range(*h.indices(H))), len(range(*w.indices(W))), 1)) * cnt
+                mx.ones((1, len(range(*h.indices(H))), len(range(*w.indices(W))), 1)) * cnt
                 # This is tricky in MLX - we'll use a simpler approach
                 cnt += 1
 
@@ -357,7 +355,7 @@ class PatchMerging(nn.Module):
         self.reduction = nn.Linear(4 * dim, 2 * dim, bias=False)
         self.norm = nn.LayerNorm(4 * dim)
 
-    def __call__(self, x: mx.array, H: int, W: int) -> Tuple[mx.array, int, int]:
+    def __call__(self, x: mx.array, H: int, W: int) -> tuple[mx.array, int, int]:
         """Forward pass.
 
         Args:
@@ -455,7 +453,7 @@ class BasicLayer(nn.Module):
         else:
             self.downsample = None
 
-    def __call__(self, x: mx.array, H: int, W: int) -> Tuple[mx.array, int, int]:
+    def __call__(self, x: mx.array, H: int, W: int) -> tuple[mx.array, int, int]:
         """Forward pass.
 
         Args:

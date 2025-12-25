@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 def separate(
-    audio: str | Path | "np.ndarray" | "mx.array",
+    audio: str | Path | np.ndarray | mx.array,
     *,
     model: str = "htdemucs_ft",
     ensemble: bool = False,
@@ -25,7 +25,7 @@ def separate(
     device: str | None = None,
     progress_callback: Any = None,
     **kwargs,
-) -> "SeparationResult":
+) -> SeparationResult:
     """Separate audio into stems.
 
     This is the main entry point for audio source separation.
@@ -65,10 +65,10 @@ def separate(
         ... )
     """
     # Import here to avoid circular imports and allow lazy loading
-    from mlx_audio.models.demucs import HTDemucs, BagOfModels, apply_model
-    from mlx_audio.hub.cache import get_cache
-    from mlx_audio.types.results import SeparationResult, AudioData
     from mlx_audio.functional._audio import load_audio_input
+    from mlx_audio.hub.cache import get_cache
+    from mlx_audio.models.demucs import BagOfModels, HTDemucs, apply_model
+    from mlx_audio.types.results import AudioData, SeparationResult
 
     # Load audio using shared utility (44100 Hz default for HTDemucs)
     audio_array, sample_rate = load_audio_input(

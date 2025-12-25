@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Tuple
+from dataclasses import dataclass
 
 
 @dataclass
@@ -152,7 +151,7 @@ class PaSSTConfig:
     n_time_frames: int = 998
 
     # Model architecture
-    patch_size: Tuple[int, int] = (16, 16)
+    patch_size: tuple[int, int] = (16, 16)
     embed_dim: int = 768
     num_heads: int = 12
     num_layers: int = 12

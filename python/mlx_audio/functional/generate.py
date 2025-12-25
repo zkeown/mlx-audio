@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import mlx.core as mx
@@ -24,7 +25,7 @@ def generate(
     output_file: str | Path | None = None,
     progress_callback: Callable[[float], None] | None = None,
     **kwargs,
-) -> "GenerationResult":
+) -> GenerationResult:
     """Generate audio from text description.
 
     This is the main entry point for text-to-audio generation using MusicGen.
@@ -70,9 +71,9 @@ def generate(
     import mlx.core as mx
     import numpy as np
 
-    from mlx_audio.models.musicgen import MusicGen
-    from mlx_audio.models.encodec import EnCodec
     from mlx_audio.hub.cache import get_cache
+    from mlx_audio.models.encodec import EnCodec
+    from mlx_audio.models.musicgen import MusicGen
     from mlx_audio.types.results import GenerationResult
 
     # Clamp duration to valid range
@@ -81,7 +82,7 @@ def generate(
         import warnings
         warnings.warn(
             f"Duration {duration}s exceeds maximum {max_duration}s. "
-            f"Clamping to {max_duration}s."
+            f"Clamping to {max_duration}s.", stacklevel=2
         )
         duration = max_duration
 
@@ -143,7 +144,7 @@ def generate(
 def _encode_text_prompt(
     prompt: str,
     config,
-) -> "mx.array":
+) -> mx.array:
     """Encode text prompt using T5.
 
     Args:
@@ -157,8 +158,8 @@ def _encode_text_prompt(
 
     try:
         # Try to use transformers for T5
-        from transformers import T5Tokenizer, T5EncoderModel
         import torch
+        from transformers import T5EncoderModel, T5Tokenizer
 
         tokenizer = T5Tokenizer.from_pretrained(config.text_encoder_name)
         encoder = T5EncoderModel.from_pretrained(config.text_encoder_name)
@@ -187,7 +188,7 @@ def _encode_text_prompt(
         warnings.warn(
             "transformers library not available. "
             "Using dummy text embeddings. Install transformers for proper text encoding: "
-            "pip install transformers"
+            "pip install transformers", stacklevel=2
         )
 
         # Create random embeddings as placeholder

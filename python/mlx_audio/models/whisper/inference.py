@@ -6,17 +6,18 @@ long audio, and timestamp extraction.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import mlx.core as mx
-import numpy as np
 
 from mlx_audio.models.whisper.kv_cache import KVCache
 
 if TYPE_CHECKING:
     from mlx_audio.models.whisper.model import Whisper
     from mlx_audio.models.whisper.tokenizer import WhisperTokenizer
+    from mlx_audio.types import TranscriptionResult
 
 
 @dataclass
@@ -136,9 +137,9 @@ def pad_or_trim(audio: mx.array, length: int = 480000) -> mx.array:
 
 
 def greedy_decode(
-    model: "Whisper",
+    model: Whisper,
     mel: mx.array,
-    tokenizer: "WhisperTokenizer",
+    tokenizer: WhisperTokenizer,
     options: DecodingOptions | None = None,
 ) -> list[int]:
     """Greedy decoding for transcription.
@@ -212,9 +213,9 @@ def greedy_decode(
 
 
 def beam_search_decode(
-    model: "Whisper",
+    model: Whisper,
     mel: mx.array,
-    tokenizer: "WhisperTokenizer",
+    tokenizer: WhisperTokenizer,
     options: DecodingOptions | None = None,
 ) -> list[int]:
     """Beam search decoding for transcription.
@@ -267,7 +268,7 @@ def beam_search_decode(
         (initial_tokens, 0.0, None)
     ]
 
-    for step in range(options.max_tokens):
+    for _step in range(options.max_tokens):
         all_candidates: list[tuple[list[int], float, KVCache | None, bool]] = []
 
         for tokens, score, kv_cache in beams:
@@ -323,9 +324,9 @@ def beam_search_decode(
 
 
 def transcribe_segment(
-    model: "Whisper",
+    model: Whisper,
     mel: mx.array,
-    tokenizer: "WhisperTokenizer",
+    tokenizer: WhisperTokenizer,
     options: DecodingOptions | None = None,
 ) -> TranscriptionSegment:
     """Transcribe a single audio segment.
@@ -373,9 +374,9 @@ def transcribe_segment(
 
 
 def transcribe_with_chunks(
-    model: "Whisper",
+    model: Whisper,
     audio: mx.array,
-    tokenizer: "WhisperTokenizer",
+    tokenizer: WhisperTokenizer,
     options: DecodingOptions | None = None,
     chunk_length: float = 30.0,
     overlap: float = 5.0,
@@ -479,16 +480,16 @@ def _merge_segments(segments: list[TranscriptionSegment]) -> list[TranscriptionS
 
 
 def apply_model(
-    model: "Whisper",
+    model: Whisper,
     audio: mx.array,
-    tokenizer: "WhisperTokenizer",
+    tokenizer: WhisperTokenizer,
     language: str | None = None,
     task: str = "transcribe",
     temperature: float = 0.0,
     beam_size: int = 1,
     word_timestamps: bool = False,
     progress_callback: Callable[[float], None] | None = None,
-) -> "TranscriptionResult":
+) -> TranscriptionResult:
     """Apply Whisper model to audio.
 
     This is the main entry point for transcription.
@@ -507,7 +508,8 @@ def apply_model(
     Returns:
         TranscriptionResult with full transcription
     """
-    from mlx_audio.types.results import TranscriptionResult, TranscriptionSegment as ResultSegment
+    from mlx_audio.types.results import TranscriptionResult
+    from mlx_audio.types.results import TranscriptionSegment as ResultSegment
 
     options = DecodingOptions(
         language=language,

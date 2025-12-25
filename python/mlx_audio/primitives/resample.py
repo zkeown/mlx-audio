@@ -109,10 +109,7 @@ def _resample_fft(
 
     # Compute target length
     ratio = target_sr / orig_sr
-    if fix:
-        target_length = int(np.round(orig_length * ratio))
-    else:
-        target_length = int(np.ceil(orig_length * ratio))
+    target_length = int(np.round(orig_length * ratio)) if fix else int(np.ceil(orig_length * ratio))
 
     if target_length == orig_length:
         result = y
@@ -172,10 +169,7 @@ def _resample_linear(
 
     # Compute target length
     ratio = target_sr / orig_sr
-    if fix:
-        target_length = int(np.round(orig_length * ratio))
-    else:
-        target_length = int(np.ceil(orig_length * ratio))
+    target_length = int(np.round(orig_length * ratio)) if fix else int(np.ceil(orig_length * ratio))
 
     if target_length == orig_length:
         result = y

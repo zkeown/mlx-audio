@@ -14,21 +14,21 @@ from functools import lru_cache
 import mlx.core as mx
 import numpy as np
 
+from mlx_audio.constants import (
+    DEFAULT_N_MELS,
+    FILTERBANK_EPSILON,
+    HTK_MEL_BASE,
+    HTK_MEL_FACTOR,
+    SLANEY_F_MIN,
+    SLANEY_F_SP,
+    SLANEY_LOGSTEP,
+    SLANEY_MIN_LOG_HZ,
+)
+
 # Import C++ extension with graceful fallback
 # noqa: F401 - reserved for future use
 from ._validation import validate_non_negative, validate_positive
 from .stft import stft
-
-from mlx_audio.constants import (
-    SLANEY_F_MIN,
-    SLANEY_F_SP,
-    SLANEY_MIN_LOG_HZ,
-    SLANEY_LOGSTEP,
-    HTK_MEL_FACTOR,
-    HTK_MEL_BASE,
-    DEFAULT_N_MELS,
-    FILTERBANK_EPSILON,
-)
 
 # Slaney mel scale constants (from centralized constants module).
 # Reference: Slaney, M. (1998). "Auditory Toolbox", Technical Report #1998-010

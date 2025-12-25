@@ -48,7 +48,7 @@ class VADStreamProcessor(StreamProcessor):
 
     def __init__(
         self,
-        model: "SileroVAD",
+        model: SileroVAD,
         threshold: float = 0.5,
         min_speech_duration: float = 0.25,
         min_silence_duration: float = 0.1,
@@ -245,7 +245,7 @@ class VADStreamProcessor(StreamProcessor):
         self._threshold = value
 
     @property
-    def model(self) -> "SileroVAD":
+    def model(self) -> SileroVAD:
         """The underlying SileroVAD model."""
         return self._model
 

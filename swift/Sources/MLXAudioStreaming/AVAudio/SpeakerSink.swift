@@ -361,9 +361,9 @@ public actor SpeakerSink: @preconcurrency AudioSink {
         }
 
         // Schedule buffer
-        playerNode.scheduleBuffer(pcmBuffer) { [weak self] in
+        playerNode.scheduleBuffer(pcmBuffer) { [self] in
             Task {
-                await self?.onBufferCompleted()
+                await self.onBufferCompleted()
             }
         }
 

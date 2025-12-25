@@ -6,13 +6,11 @@ multilingual transcription and translation tasks.
 
 from __future__ import annotations
 
-import base64
 from functools import lru_cache
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import mlx.core as mx
+    pass
 
 # Language codes supported by multilingual Whisper
 LANGUAGES = {
@@ -368,9 +366,8 @@ class WhisperTokenizer:
         tokens = [self.sot]
 
         # Add language token for multilingual
-        if self.multilingual:
-            if language is not None:
-                tokens.append(self.get_language_token(language))
+        if self.multilingual and language is not None:
+            tokens.append(self.get_language_token(language))
             # If None, language will be detected during decoding
 
         # Add task token

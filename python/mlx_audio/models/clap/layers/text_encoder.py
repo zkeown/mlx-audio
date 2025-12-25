@@ -18,7 +18,7 @@ class RobertaEmbeddings(nn.Module):
         config: Text encoder configuration
     """
 
-    def __init__(self, config: "CLAPTextConfig"):
+    def __init__(self, config: CLAPTextConfig):
         super().__init__()
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size)
         self.position_embeddings = nn.Embedding(
@@ -78,7 +78,7 @@ class RobertaSelfAttention(nn.Module):
         config: Text encoder configuration
     """
 
-    def __init__(self, config: "CLAPTextConfig"):
+    def __init__(self, config: CLAPTextConfig):
         super().__init__()
         self.num_heads = config.num_attention_heads
         self.head_dim = config.hidden_size // config.num_attention_heads
@@ -150,7 +150,7 @@ class RobertaAttention(nn.Module):
         config: Text encoder configuration
     """
 
-    def __init__(self, config: "CLAPTextConfig"):
+    def __init__(self, config: CLAPTextConfig):
         super().__init__()
         self.self_attn = RobertaSelfAttention(config)
         self.output = nn.Linear(config.hidden_size, config.hidden_size)
@@ -177,7 +177,7 @@ class RobertaIntermediate(nn.Module):
         config: Text encoder configuration
     """
 
-    def __init__(self, config: "CLAPTextConfig"):
+    def __init__(self, config: CLAPTextConfig):
         super().__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
         self.act = nn.GELU()
@@ -193,7 +193,7 @@ class RobertaOutput(nn.Module):
         config: Text encoder configuration
     """
 
-    def __init__(self, config: "CLAPTextConfig"):
+    def __init__(self, config: CLAPTextConfig):
         super().__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
@@ -213,7 +213,7 @@ class RobertaLayer(nn.Module):
         config: Text encoder configuration
     """
 
-    def __init__(self, config: "CLAPTextConfig"):
+    def __init__(self, config: CLAPTextConfig):
         super().__init__()
         self.attention = RobertaAttention(config)
         self.intermediate = RobertaIntermediate(config)
@@ -238,7 +238,7 @@ class RobertaEncoder(nn.Module):
         config: Text encoder configuration
     """
 
-    def __init__(self, config: "CLAPTextConfig"):
+    def __init__(self, config: CLAPTextConfig):
         super().__init__()
         self.layers = [RobertaLayer(config) for _ in range(config.num_hidden_layers)]
 
@@ -303,7 +303,7 @@ class CLAPTextEncoder(nn.Module):
         projection_dim: Output projection dimension
     """
 
-    def __init__(self, config: "CLAPTextConfig", projection_dim: int = 512):
+    def __init__(self, config: CLAPTextConfig, projection_dim: int = 512):
         super().__init__()
         self.config = config
 

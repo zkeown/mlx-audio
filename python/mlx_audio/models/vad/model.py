@@ -10,7 +10,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_audio.models.vad.config import VADConfig
-from mlx_audio.models.vad.layers import VADEncoder, VADDecoder, StackedLSTM
+from mlx_audio.models.vad.layers import StackedLSTM, VADDecoder, VADEncoder
 
 if TYPE_CHECKING:
     pass
@@ -188,7 +188,7 @@ class SileroVAD(nn.Module):
         else:
             squeeze_batch = False
 
-        batch_size = audio.shape[0]
+        audio.shape[0]
         num_samples = audio.shape[1]
         window_size = self.config.window_size_samples
         sample_rate = self.config.sample_rate
@@ -281,7 +281,7 @@ class SileroVAD(nn.Module):
         cls,
         path: str | Path,
         **kwargs,
-    ) -> "SileroVAD":
+    ) -> SileroVAD:
         """Load pretrained VAD model.
 
         Args:

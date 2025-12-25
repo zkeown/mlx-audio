@@ -24,35 +24,14 @@ from __future__ import annotations
 # Core types
 from mlx_audio.streaming._types import StreamChunk, StreamState, StreamStats
 
-# State management
-from mlx_audio.streaming.context import StreamingContext
+# Adapters
+from mlx_audio.streaming.adapters.demucs import HTDemucsStreamProcessor
 
 # Buffering
 from mlx_audio.streaming.buffer import AudioRingBuffer
 
-# Processor base classes
-from mlx_audio.streaming.processor import (
-    GainProcessor,
-    IdentityProcessor,
-    Streamable,
-    StreamProcessor,
-)
-
-# Pipeline
-from mlx_audio.streaming.pipeline import AudioSink, AudioSource, StreamingPipeline
-
-# Adapters
-from mlx_audio.streaming.adapters.demucs import HTDemucsStreamProcessor
-
-# Sources
-from mlx_audio.streaming.sources.file import FileSource
-from mlx_audio.streaming.sources.callback import CallbackSource
-from mlx_audio.streaming.sources.microphone import MicrophoneSource
-
-# Sinks
-from mlx_audio.streaming.sinks.file import FileSink, MultiFileSink
-from mlx_audio.streaming.sinks.callback import CallbackSink
-from mlx_audio.streaming.sinks.speaker import SpeakerSink
+# State management
+from mlx_audio.streaming.context import StreamingContext
 
 # Metrics
 from mlx_audio.streaming.metrics import (
@@ -64,6 +43,27 @@ from mlx_audio.streaming.metrics import (
     si_sdr,
     snr,
 )
+
+# Pipeline
+from mlx_audio.streaming.pipeline import AudioSink, AudioSource, StreamingPipeline
+
+# Processor base classes
+from mlx_audio.streaming.processor import (
+    GainProcessor,
+    IdentityProcessor,
+    Streamable,
+    StreamProcessor,
+)
+from mlx_audio.streaming.sinks.callback import CallbackSink
+
+# Sinks
+from mlx_audio.streaming.sinks.file import FileSink, MultiFileSink
+from mlx_audio.streaming.sinks.speaker import SpeakerSink
+from mlx_audio.streaming.sources.callback import CallbackSource
+
+# Sources
+from mlx_audio.streaming.sources.file import FileSource
+from mlx_audio.streaming.sources.microphone import MicrophoneSource
 
 __all__ = [
     # Types

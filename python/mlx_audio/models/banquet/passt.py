@@ -323,7 +323,7 @@ class PaSST(nn.Module):
         return embedding
 
     @staticmethod
-    def from_config(config: PaSSTConfig) -> "PaSST":
+    def from_config(config: PaSSTConfig) -> PaSST:
         """Create PaSST from configuration.
 
         Args:

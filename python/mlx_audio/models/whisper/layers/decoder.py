@@ -32,7 +32,7 @@ class TextDecoder(nn.Module):
         ln: Final layer normalization
     """
 
-    def __init__(self, config: "WhisperConfig"):
+    def __init__(self, config: WhisperConfig):
         """Initialize text decoder.
 
         Args:
@@ -68,7 +68,7 @@ class TextDecoder(nn.Module):
         self,
         tokens: mx.array,
         audio_features: mx.array,
-        kv_cache: "KVCache | None" = None,
+        kv_cache: KVCache | None = None,
     ) -> mx.array:
         """Generate logits for next token prediction.
 

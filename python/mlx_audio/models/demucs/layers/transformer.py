@@ -57,7 +57,7 @@ def create_2d_sin_embedding(
         Positional embedding [1, d_model, height, width]
     """
     half_d = d_model // 2
-    quarter_d = half_d // 2
+    half_d // 2
 
     # div_term: step by 2 to match PyTorch
     div_term = mx.exp(
@@ -394,7 +394,7 @@ class CrossTransformerEncoder(nn.Module):
 
         # Apply layers
         for i, (freq_layer, time_layer) in enumerate(
-            zip(self.layers, self.layers_t)
+            zip(self.layers, self.layers_t, strict=False)
         ):
             if i % 2 == 0:
                 # Self-attention

@@ -168,7 +168,7 @@ class CodebookEmbeddings(nn.Module):
     all codebooks are summed together to form the input representation.
     """
 
-    def __init__(self, config: "ParlerTTSConfig"):
+    def __init__(self, config: ParlerTTSConfig):
         """Initialize codebook embeddings.
 
         Args:

@@ -109,7 +109,7 @@ class ParlerTTSConfig:
         return self.codebook_size + 2  # +2 for pad and bos
 
     @classmethod
-    def mini(cls) -> "ParlerTTSConfig":
+    def mini(cls) -> ParlerTTSConfig:
         """Parler-TTS Mini configuration (~880M parameters).
 
         Fast inference, good for real-time applications.
@@ -129,7 +129,7 @@ class ParlerTTSConfig:
         )
 
     @classmethod
-    def large(cls) -> "ParlerTTSConfig":
+    def large(cls) -> ParlerTTSConfig:
         """Parler-TTS Large configuration (~2.3B parameters).
 
         Best quality, slower inference.
@@ -149,7 +149,7 @@ class ParlerTTSConfig:
         )
 
     @classmethod
-    def from_name(cls, name: str) -> "ParlerTTSConfig":
+    def from_name(cls, name: str) -> ParlerTTSConfig:
         """Create config from model name.
 
         Args:
@@ -177,7 +177,7 @@ class ParlerTTSConfig:
         return configs[name]()
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ParlerTTSConfig":
+    def from_dict(cls, d: dict[str, Any]) -> ParlerTTSConfig:
         """Create config from dictionary."""
         valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
         return cls(**{k: v for k, v in d.items() if k in valid_fields})

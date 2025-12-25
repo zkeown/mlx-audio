@@ -2,7 +2,7 @@
 
 Architecture:
     Input: Mel-spectrogram (batch, time, n_mels, 1) - NHWC format
-    -> CNN Encoder: Extract local spectral features  
+    -> CNN Encoder: Extract local spectral features
     -> Transformer: Model temporal dependencies
     -> Dual Head: Predict onsets and velocities
     Output: onset_logits (batch, time, num_classes)
@@ -54,7 +54,7 @@ class DrumTranscriberConfig:
 
 class ConvBlock(nn.Module):
     """Convolutional block with BatchNorm and SiLU activation.
-    
+
     MLX uses NHWC format: (batch, height, width, channels)
     For spectrograms: (batch, time, freq, channels)
     """
@@ -69,13 +69,13 @@ class ConvBlock(nn.Module):
         use_bn: bool = True,
     ):
         super().__init__()
-        
+
         # Normalize to tuples
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size)
         if isinstance(stride, int):
             stride = (stride, stride)
-        
+
         # Compute "same" padding if not specified
         if padding is None:
             padding = (kernel_size[0] // 2, kernel_size[1] // 2)
@@ -125,25 +125,25 @@ class SpectrogramEncoder(nn.Module):
         # Use smaller channel counts to stay within param budget
         # (B, T, 128, 1) -> (B, T, 128, 32)
         self.conv1 = ConvBlock(1, 32, kernel_size=(3, 7), stride=1, padding=(1, 3))
-        
+
         # (B, T, 128, 32) -> (B, T, 64, 64)
         self.conv2 = ConvBlock(32, 64, kernel_size=3, stride=(1, 2))
         self.conv2b = ConvBlock(64, 64, kernel_size=3, stride=1)
-        
+
         # (B, T, 64, 64) -> (B, T, 32, 128)
         self.conv3 = ConvBlock(64, 128, kernel_size=3, stride=(1, 2))
         self.conv3b = ConvBlock(128, 128, kernel_size=3, stride=1)
-        
+
         # (B, T, 32, 128) -> (B, T, 16, 256)
         self.conv4 = ConvBlock(128, 256, kernel_size=3, stride=(1, 2))
         self.conv4b = ConvBlock(256, 256, kernel_size=3, stride=1)
-        
+
         # (B, T, 16, 256) -> (B, T, 8, 384)
         self.conv5 = ConvBlock(256, 384, kernel_size=3, stride=(1, 2))
         self.conv5b = ConvBlock(384, 384, kernel_size=3, stride=1)
-        
+
         self.dropout = nn.Dropout(drop_rate)
-        
+
         # Project to embed_dim
         self.proj = nn.Linear(384, embed_dim)
 
@@ -157,19 +157,19 @@ class SpectrogramEncoder(nn.Module):
             Feature sequence (batch, time, embed_dim)
         """
         x = self.conv1(x)
-        
+
         x = self.conv2(x)
         x = self.conv2b(x)
-        
+
         x = self.conv3(x)
         x = self.conv3b(x)
-        
+
         x = self.conv4(x)
         x = self.conv4b(x)
-        
+
         x = self.conv5(x)
         x = self.conv5b(x)
-        
+
         x = self.dropout(x)
 
         # Average pool over frequency dimension: (B, T, F', C) -> (B, T, C)
@@ -205,7 +205,7 @@ class LightweightEncoder(nn.Module):
         x = self.conv3(x)
         x = self.conv4(x)
         x = self.dropout(x)
-        
+
         # Pool over frequency
         x = mx.mean(x, axis=2)  # (B, T, C)
         x = self.proj(x)

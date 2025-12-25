@@ -39,10 +39,7 @@ def _to_db(
     mx.array
         Spectrogram in decibels.
     """
-    if callable(ref):
-        ref_value = ref(S)
-    else:
-        ref_value = mx.array(ref, dtype=S.dtype)
+    ref_value = ref(S) if callable(ref) else mx.array(ref, dtype=S.dtype)
 
     # Ensure positive values
     S = mx.maximum(S, amin)

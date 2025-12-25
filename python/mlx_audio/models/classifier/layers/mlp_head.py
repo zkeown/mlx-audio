@@ -36,7 +36,7 @@ class MLPHead(nn.Module):
         prev_dim = config.input_dim
 
         # Hidden layers
-        for i, hidden_dim in enumerate(config.hidden_dims):
+        for _i, hidden_dim in enumerate(config.hidden_dims):
             # Linear layer
             self._layers.append(nn.Linear(prev_dim, hidden_dim))
 

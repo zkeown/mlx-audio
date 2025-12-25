@@ -56,20 +56,14 @@ def interpolate_2d(
     B, C, H, W = x.shape
     target_H, target_W = target_shape
 
-    if H == target_H and W == target_W:
+    if target_H == H and target_W == W:
         return x
 
     # Create coordinate mapping with align_corners=True
     # This maps output corners exactly to input corners
     if align_corners:
-        if target_H > 1:
-            y_coords = mx.linspace(0, H - 1, target_H)
-        else:
-            y_coords = mx.array([0.0])
-        if target_W > 1:
-            x_coords = mx.linspace(0, W - 1, target_W)
-        else:
-            x_coords = mx.array([0.0])
+        y_coords = mx.linspace(0, H - 1, target_H) if target_H > 1 else mx.array([0.0])
+        x_coords = mx.linspace(0, W - 1, target_W) if target_W > 1 else mx.array([0.0])
     else:
         # Scale factor approach (not used when align_corners=True)
         scale_h = H / target_H
@@ -181,7 +175,7 @@ class HTSAT(nn.Module):
         config: Audio encoder configuration
     """
 
-    def __init__(self, config: "CLAPAudioConfig"):
+    def __init__(self, config: CLAPAudioConfig):
         super().__init__()
         self.config = config
         self.enable_fusion = config.enable_fusion
@@ -213,7 +207,7 @@ class HTSAT(nn.Module):
         dim = config.embed_dim
         dpr_idx = 0
 
-        for i, (depth, num_heads) in enumerate(zip(config.depths, config.num_heads)):
+        for i, (depth, num_heads) in enumerate(zip(config.depths, config.num_heads, strict=False)):
             layer = BasicLayer(
                 dim=dim,
                 depth=depth,
@@ -397,7 +391,7 @@ class AudioFusion(nn.Module):
         config: Audio encoder configuration
     """
 
-    def __init__(self, config: "CLAPAudioConfig"):
+    def __init__(self, config: CLAPAudioConfig):
         super().__init__()
         self.config = config
 
@@ -428,7 +422,7 @@ class AudioFusion(nn.Module):
         """
         B, _, F, T = mel.shape
 
-        if T <= chunk_size:
+        if chunk_size >= T:
             # No fusion needed
             return encoder(mel)
 

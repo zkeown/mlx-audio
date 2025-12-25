@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import mlx.core as mx
+    import numpy as np
 
 from mlx_audio.types.audio import AudioData
 
@@ -276,12 +277,12 @@ class EmbeddingResult:
         metadata: Additional metadata
     """
 
-    vectors: "mx.array"
+    vectors: mx.array
     model_name: str = ""
     metadata: dict = field(default_factory=dict)
 
     @property
-    def vector(self) -> "mx.array":
+    def vector(self) -> mx.array:
         """Get single embedding vector (first if batched)."""
         if len(self.vectors.shape) == 1:
             return self.vectors
@@ -298,7 +299,7 @@ class EmbeddingResult:
 
         return np.array(self.vectors)
 
-    def cosine_similarity(self, other: "EmbeddingResult") -> float:
+    def cosine_similarity(self, other: EmbeddingResult) -> float:
         """Compute cosine similarity with another embedding."""
         import mlx.core as mx
 
@@ -337,7 +338,7 @@ class DiarizationResult:
 
     segments: list[SpeakerSegment]
     num_speakers: int
-    speaker_embeddings: dict[str, "mx.array"] | None = None
+    speaker_embeddings: dict[str, mx.array] | None = None
     model_name: str = ""
     metadata: dict = field(default_factory=dict)
 
@@ -398,7 +399,7 @@ class DiarizationResult:
     @property
     def speakers(self) -> list[str]:
         """List of unique speaker IDs."""
-        return sorted(set(seg.speaker for seg in self.segments))
+        return sorted({seg.speaker for seg in self.segments})
 
     @property
     def total_duration(self) -> float:
@@ -503,7 +504,7 @@ class EnhancementResult(AudioData):
     metadata: dict = field(default_factory=dict)
 
     @property
-    def before_after(self) -> tuple["mx.array", "mx.array"]:
+    def before_after(self) -> tuple[mx.array, mx.array]:
         """Get original and enhanced arrays for comparison.
 
         Returns
@@ -540,7 +541,7 @@ class ClassificationResult:
     """
 
     predicted_class: int | str
-    probabilities: "mx.array"
+    probabilities: mx.array
     class_names: list[str] | None = None
     top_k_classes: list[int | str] | None = None
     top_k_probs: list[float] | None = None
@@ -603,15 +604,15 @@ class CLAPEmbeddingResult:
         metadata: Additional metadata
     """
 
-    audio_embeds: "mx.array | None" = None
-    text_embeds: "mx.array | None" = None
-    similarity: "mx.array | None" = None
+    audio_embeds: mx.array | None = None
+    text_embeds: mx.array | None = None
+    similarity: mx.array | None = None
     text_labels: list[str] | None = None
     model_name: str = ""
     metadata: dict = field(default_factory=dict)
 
     @property
-    def vectors(self) -> "mx.array":
+    def vectors(self) -> mx.array:
         """Get primary embedding vectors (audio if available, else text)."""
         if self.audio_embeds is not None:
             return self.audio_embeds
@@ -654,12 +655,12 @@ class CLAPEmbeddingResult:
         matches = [self.text_labels[i] for i in indices]
         return matches[0] if top_k == 1 else matches
 
-    def to_numpy(self) -> "np.ndarray":
+    def to_numpy(self) -> np.ndarray:
         """Convert primary embeddings to NumPy array."""
         import numpy as np
         return np.array(self.vectors)
 
-    def cosine_similarity(self, other: "CLAPEmbeddingResult") -> float:
+    def cosine_similarity(self, other: CLAPEmbeddingResult) -> float:
         """Compute cosine similarity with another embedding."""
         import mlx.core as mx
 
@@ -691,7 +692,7 @@ class TaggingResult:
     """
 
     tags: list[int | str]
-    probabilities: "mx.array"
+    probabilities: mx.array
     tag_names: list[str] | None = None
     threshold: float = 0.5
     model_name: str = ""

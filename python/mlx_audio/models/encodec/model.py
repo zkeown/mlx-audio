@@ -10,8 +10,8 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_audio.models.encodec.config import EnCodecConfig
-from mlx_audio.models.encodec.layers.encoder import EnCodecEncoder
 from mlx_audio.models.encodec.layers.decoder import EnCodecDecoder
+from mlx_audio.models.encodec.layers.encoder import EnCodecEncoder
 from mlx_audio.models.encodec.layers.quantizer import ResidualVectorQuantizer
 
 if TYPE_CHECKING:
@@ -79,7 +79,6 @@ class EnCodec(nn.Module):
                 - T' is T / hop_length
         """
         # Handle different input shapes
-        original_ndim = audio.ndim
         if audio.ndim == 1:
             audio = audio.reshape(1, 1, -1)  # [1, 1, T]
         elif audio.ndim == 2:
@@ -182,7 +181,7 @@ class EnCodec(nn.Module):
         cls,
         path: str | Path,
         **kwargs,
-    ) -> "EnCodec":
+    ) -> EnCodec:
         """Load pretrained EnCodec model.
 
         Args:

@@ -7,14 +7,13 @@ with MLX training.
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
+import mido
 import mlx.core as mx
 import numpy as np
-import mido
-
 
 # Drum class definitions (matching PyTorch version)
 NUM_CLASSES = 14
@@ -60,7 +59,7 @@ EXTENDED_MIDI_MAPPING: dict[int, int] = {
 @dataclass
 class SpectrogramConfig:
     """Spectrogram configuration matching the PyTorch version."""
-    
+
     sample_rate: int = 44100
     n_fft: int = 2048
     hop_length: int = 441  # 10ms at 44.1kHz -> 100fps
@@ -85,25 +84,54 @@ class DrumHit:
     velocity: int  # 0-127
 
 
-def load_midi_hits(midi_path: Path | str) -> list[DrumHit]:
-    """Load drum hits from a MIDI file."""
+def load_midi_hits(midi_path: Path | str, use_cache: bool = True) -> list[DrumHit]:
+    """Load drum hits from a MIDI file, using cache if available.
+
+    Cache files are stored as .hits.npy alongside the MIDI file.
+    """
+    midi_path = Path(midi_path)
+    cache_path = midi_path.with_suffix(".hits.npy")
+
+    # Try to load from cache
+    if use_cache and cache_path.exists():
+        try:
+            data = np.load(cache_path)
+            return [
+                DrumHit(time=float(row[0]), drum_class=int(row[1]), velocity=int(row[2]))
+                for row in data
+            ]
+        except Exception:
+            pass  # Fall back to parsing
+
+    # Parse MIDI file
     midi = mido.MidiFile(midi_path)
     hits = []
     current_time = 0.0
 
     for msg in midi:
         current_time += msg.time
-        if msg.type == "note_on" and msg.velocity > 0:
-            if msg.note in EXTENDED_MIDI_MAPPING:
-                drum_class = EXTENDED_MIDI_MAPPING[msg.note]
-                hit = DrumHit(
-                    time=current_time,
-                    drum_class=drum_class,
-                    velocity=msg.velocity,
-                )
-                hits.append(hit)
+        if msg.type == "note_on" and msg.velocity > 0 and msg.note in EXTENDED_MIDI_MAPPING:
+            drum_class = EXTENDED_MIDI_MAPPING[msg.note]
+            hit = DrumHit(
+                time=current_time,
+                drum_class=drum_class,
+                velocity=msg.velocity,
+            )
+            hits.append(hit)
 
     hits.sort(key=lambda h: h.time)
+
+    # Save to cache
+    if use_cache and hits:
+        try:
+            data = np.array(
+                [(h.time, h.drum_class, h.velocity) for h in hits],
+                dtype=np.float32,
+            )
+            np.save(cache_path, data)
+        except Exception:
+            pass  # Ignore cache write failures
+
     return hits
 
 
@@ -113,7 +141,7 @@ def create_onset_target(
     config: SpectrogramConfig,
 ) -> tuple[mx.array, mx.array]:
     """Create onset and velocity targets from drum hits.
-    
+
     Returns:
         Tuple of (onset_target, velocity_target) both shape (num_frames, num_classes)
     """
@@ -131,17 +159,17 @@ def create_onset_target(
 
 def load_spectrogram_cached(audio_path: Path, config: SpectrogramConfig) -> mx.array:
     """Load spectrogram from cache or compute from audio.
-    
+
     Checks for cached files in order: .spec.npy (MLX), .spec.pt (PyTorch)
     """
     npy_cache = audio_path.with_suffix(".spec.npy")
     pt_cache = audio_path.with_suffix(".spec.pt")
-    
+
     if npy_cache.exists():
         # Load from numpy cache (fastest)
         spec_np = np.load(npy_cache)
         return mx.array(spec_np)
-    
+
     if pt_cache.exists():
         # Load from PyTorch cache
         import torch
@@ -223,11 +251,11 @@ class EGMDDataset:
 
                 midi_path = base_dir / row["midi_filename"]
                 audio_path = base_dir / row["audio_filename"]
-                
+
                 # Check for .midi extension
                 if not midi_path.exists():
                     midi_path = midi_path.with_suffix(".midi")
-                
+
                 # Check for spectrogram cache (.spec.pt or .spec.npy)
                 pt_cache = audio_path.with_suffix(".spec.pt")
                 npy_cache = audio_path.with_suffix(".spec.npy")
@@ -253,8 +281,8 @@ class EGMDDataset:
 
     def _preload_midi(self):
         """Pre-load all MIDI files into memory using parallel loading."""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         import os
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         num_examples = len(self.examples)
         print(f"  Pre-loading {num_examples:,} MIDI files...")
@@ -428,9 +456,9 @@ def _create_prefetching_dataloader(
     prefetch_factor: int,
 ) -> Iterator[dict[str, mx.array]]:
     """Prefetching dataloader with background workers."""
+    import threading
     from concurrent.futures import ThreadPoolExecutor
     from queue import Queue
-    import threading
 
     # Queue for prefetched batches
     prefetch_queue: Queue = Queue(maxsize=num_workers * prefetch_factor)
@@ -507,7 +535,7 @@ def compute_class_weights(
     max_samples: int = 1000,
 ) -> mx.array:
     """Compute per-class weights from dataset statistics.
-    
+
     Returns:
         mx.array of shape (num_classes,) with per-class weights
     """
@@ -529,15 +557,15 @@ def compute_class_weights(
 
     # Compute weights inversely proportional to frequency
     class_rates = class_counts / total_frames
-    
+
     # Weight = 1 / rate, normalized so min weight = min_weight
     # Avoid division by zero
     class_rates = np.maximum(class_rates, 1e-8)
     weights = 1.0 / class_rates
-    
+
     # Normalize
     weights = weights * (min_weight / weights.min())
-    
+
     # Cap max weight
     weights = np.minimum(weights, max_weight)
 

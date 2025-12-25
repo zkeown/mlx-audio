@@ -108,7 +108,9 @@ public class QuantizedLinear: Module, @unchecked Sendable {
     /// Forward pass with on-the-fly dequantization.
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
         // Dequantize weights
-        let weight = dequantize()
+        // Using try! is safe here because config.bits is validated at init time
+        // and only supports 4 and 8, which are handled by dequantize()
+        let weight = try! dequantize()
 
         // Standard linear: output = x @ weight.T + bias
         var output = MLX.matmul(x, weight.T)
@@ -372,7 +374,7 @@ extension QuantizedLinear {
     public static func from(
         _ linear: Linear,
         config: QuantizationConfig = .int4
-    ) -> QuantizedLinear {
+    ) throws -> QuantizedLinear {
         let inputDim = linear.weight.dim(1)
         let outputDim = linear.weight.dim(0)
 
@@ -383,7 +385,7 @@ extension QuantizedLinear {
             config: config
         )
 
-        quantized.quantize(from: linear.weight)
+        try quantized.quantize(from: linear.weight)
 
         if let b = linear.bias {
             quantized.bias = b.asType(.float16)

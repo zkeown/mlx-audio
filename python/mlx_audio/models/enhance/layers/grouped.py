@@ -240,10 +240,7 @@ class GroupedGRU(nn.Module):
         for g in range(self.num_groups):
             x_g = x_groups[:, :, g, :]  # (batch, seq, group_hidden)
 
-            if hidden is not None:
-                h_g = hidden[:, g * group_hidden:(g + 1) * group_hidden]
-            else:
-                h_g = None
+            h_g = hidden[:, g * group_hidden:(g + 1) * group_hidden] if hidden is not None else None
 
             result = self.grus[g](x_g, h_g)
             # Handle MLX GRU return

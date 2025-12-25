@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING
 import mlx.core as mx
 import mlx.nn as nn
 
-from mlx_audio.models.clap.config import CLAPConfig, CLAPAudioConfig, CLAPTextConfig
+from mlx_audio.models.clap.config import CLAPConfig
 from mlx_audio.models.clap.feature_extractor import CLAPFeatureExtractor
 from mlx_audio.models.clap.layers.htsat import HTSAT, AudioFusion
 from mlx_audio.models.clap.layers.text_encoder import CLAPTextEncoder
 
 if TYPE_CHECKING:
-    import numpy as np
+    pass
 
 
 class CLAPProjection(nn.Module):
@@ -241,7 +241,7 @@ class CLAP(nn.Module):
         cls,
         path: str | Path,
         **kwargs,
-    ) -> "CLAP":
+    ) -> CLAP:
         """Load pretrained CLAP model.
 
         Args:

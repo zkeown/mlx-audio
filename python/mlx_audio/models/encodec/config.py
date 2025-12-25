@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -80,7 +80,7 @@ class EnCodecConfig:
         return result
 
     @classmethod
-    def encodec_24khz(cls) -> "EnCodecConfig":
+    def encodec_24khz(cls) -> EnCodecConfig:
         """EnCodec 24kHz mono configuration (default for MusicGen)."""
         return cls(
             sample_rate=24000,
@@ -96,7 +96,7 @@ class EnCodecConfig:
         )
 
     @classmethod
-    def encodec_32khz(cls) -> "EnCodecConfig":
+    def encodec_32khz(cls) -> EnCodecConfig:
         """EnCodec 32kHz configuration for MusicGen."""
         return cls(
             sample_rate=32000,
@@ -112,7 +112,7 @@ class EnCodecConfig:
         )
 
     @classmethod
-    def encodec_48khz_stereo(cls) -> "EnCodecConfig":
+    def encodec_48khz_stereo(cls) -> EnCodecConfig:
         """EnCodec 48kHz stereo configuration."""
         return cls(
             sample_rate=48000,
@@ -128,7 +128,7 @@ class EnCodecConfig:
         )
 
     @classmethod
-    def from_name(cls, name: str) -> "EnCodecConfig":
+    def from_name(cls, name: str) -> EnCodecConfig:
         """Create config from model name.
 
         Args:
@@ -160,7 +160,7 @@ class EnCodecConfig:
         return configs[name]()
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "EnCodecConfig":
+    def from_dict(cls, d: dict[str, Any]) -> EnCodecConfig:
         """Create config from dictionary."""
         # Handle ratios as list -> tuple
         if "ratios" in d and isinstance(d["ratios"], list):

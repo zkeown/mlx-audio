@@ -11,8 +11,9 @@ from functools import lru_cache
 import mlx.core as mx
 import numpy as np
 
-from ._validation import validate_non_negative, validate_positive
 from mlx_audio.constants import FILTERBANK_EPSILON
+
+from ._validation import validate_non_negative, validate_positive
 
 
 def hz_to_bark(frequencies: np.ndarray, formula: str = "zwicker") -> np.ndarray:

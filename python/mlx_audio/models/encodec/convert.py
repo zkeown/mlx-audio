@@ -291,8 +291,9 @@ def convert_encodec_weights(
         stacklevel=2,
     )
 
-    from mlx_audio.models.base.weight_converter import WeightConverter
     import re
+
+    from mlx_audio.models.base.weight_converter import WeightConverter
 
     class LegacyEnCodecConverter(WeightConverter):
         model_name = "encodec"
@@ -312,9 +313,8 @@ def convert_encodec_weights(
             self, key: str, np_array: np.ndarray
         ) -> np.ndarray:
             shape = np_array.shape
-            if len(shape) == 3 and key.endswith('.weight'):
-                if 'conv' in key.lower():
-                    np_array = np.transpose(np_array, (0, 2, 1))
+            if len(shape) == 3 and key.endswith('.weight') and 'conv' in key.lower():
+                np_array = np.transpose(np_array, (0, 2, 1))
             return np_array
 
     converter = LegacyEnCodecConverter()

@@ -158,10 +158,9 @@ class HTDemucsStreamProcessor(StreamProcessor):
             squeeze_batch = False
 
         B, C, T = audio.shape
-        S = self._num_sources
 
         # Pad if chunk is shorter than expected
-        if T < self._chunk_samples:
+        if self._chunk_samples > T:
             pad_amount = self._chunk_samples - T
             audio = mx.pad(audio, [(0, 0), (0, 0), (0, pad_amount)])
             actual_len = T

@@ -43,7 +43,7 @@ class DeepFilterNetConfig:
         return self.fft_size // 2 + 1
 
     @classmethod
-    def deepfilternet2(cls) -> "DeepFilterNetConfig":
+    def deepfilternet2(cls) -> DeepFilterNetConfig:
         """DeepFilterNet2 configuration (48kHz, best quality)."""
         return cls(
             sample_rate=48000,
@@ -58,7 +58,7 @@ class DeepFilterNetConfig:
         )
 
     @classmethod
-    def deepfilternet2_16k(cls) -> "DeepFilterNetConfig":
+    def deepfilternet2_16k(cls) -> DeepFilterNetConfig:
         """16kHz version for telephony applications."""
         return cls(
             sample_rate=16000,
@@ -73,6 +73,6 @@ class DeepFilterNetConfig:
         )
 
     @classmethod
-    def from_dict(cls, d: dict) -> "DeepFilterNetConfig":
+    def from_dict(cls, d: dict) -> DeepFilterNetConfig:
         """Create config from dictionary."""
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})

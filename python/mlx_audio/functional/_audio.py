@@ -22,12 +22,12 @@ from mlx_audio.exceptions import AudioLoadError
 
 
 def load_audio_input(
-    audio: "str | Path | np.ndarray | mx.array",
+    audio: str | Path | np.ndarray | mx.array,
     sample_rate: int | None = None,
     default_sample_rate: int = 44100,
     target_sample_rate: int | None = None,
     mono: bool = False,
-) -> tuple["mx.array", int]:
+) -> tuple[mx.array, int]:
     """Load audio from various input types.
 
     This is the unified audio loading function for all functional APIs.
@@ -94,10 +94,10 @@ def load_audio_input(
 
 
 def _load_from_file(
-    path: "str | Path",
+    path: str | Path,
     sample_rate: int | None,
     mono: bool,
-) -> tuple["mx.array", int]:
+) -> tuple[mx.array, int]:
     """Load audio from file path."""
     from mlx_audio.types.audio import load_audio
 
@@ -118,11 +118,11 @@ MAX_AUDIO_BYTES: int = 2 * 1024 * 1024 * 1024
 
 
 def _load_from_numpy(
-    audio: "np.ndarray",
+    audio: np.ndarray,
     sample_rate: int | None,
     default_sample_rate: int,
     mono: bool,
-) -> tuple["mx.array", int]:
+) -> tuple[mx.array, int]:
     """Load audio from numpy array."""
     import mlx.core as mx
     import numpy as np
@@ -160,11 +160,11 @@ def _load_from_numpy(
 
 
 def _load_from_mlx(
-    audio: "mx.array",
+    audio: mx.array,
     sample_rate: int | None,
     default_sample_rate: int,
     mono: bool,
-) -> tuple["mx.array", int]:
+) -> tuple[mx.array, int]:
     """Load audio from MLX array."""
     import mlx.core as mx
 
@@ -193,7 +193,7 @@ def _load_from_mlx(
     return audio, sr
 
 
-def _to_mono(audio: "mx.array") -> "mx.array":
+def _to_mono(audio: mx.array) -> mx.array:
     """Convert audio to mono by averaging channels."""
     import mlx.core as mx
 
@@ -213,7 +213,7 @@ def _to_mono(audio: "mx.array") -> "mx.array":
         )
 
 
-def ensure_batch_dim(audio: "mx.array") -> "mx.array":
+def ensure_batch_dim(audio: mx.array) -> mx.array:
     """Ensure audio has batch dimension [B, ...].
 
     Args:
@@ -239,7 +239,7 @@ def ensure_batch_dim(audio: "mx.array") -> "mx.array":
         return audio
 
 
-def ensure_mono_batch(audio: "mx.array") -> "mx.array":
+def ensure_mono_batch(audio: mx.array) -> mx.array:
     """Ensure audio is mono with batch dimension [B, T].
 
     Converts stereo to mono and adds batch dimension if missing.
@@ -271,7 +271,7 @@ def ensure_mono_batch(audio: "mx.array") -> "mx.array":
 
 
 def validate_audio(
-    audio: "mx.array",
+    audio: mx.array,
     min_samples: int = 0,
     max_samples: int | None = None,
     expected_channels: int | None = None,

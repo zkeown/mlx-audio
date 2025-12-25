@@ -142,7 +142,7 @@ class ECAPATDNN(nn.Module):
         cls,
         path: str | Path | None = None,
         config: EcapaTDNNConfig | None = None,
-    ) -> "ECAPATDNN":
+    ) -> ECAPATDNN:
         """Load pretrained model.
 
         Parameters
@@ -389,7 +389,7 @@ class SpeakerDiarization(nn.Module):
         cls,
         path: str | Path | None = None,
         config: DiarizationConfig | None = None,
-    ) -> "SpeakerDiarization":
+    ) -> SpeakerDiarization:
         """Load pretrained model.
 
         Parameters

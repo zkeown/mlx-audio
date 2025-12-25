@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import mlx.core as mx
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 
 
 def detect_speech(
-    audio: str | Path | "np.ndarray" | "mx.array",
+    audio: str | Path | np.ndarray | mx.array,
     *,
     model: str = "silero-vad",
     threshold: float = 0.5,
@@ -25,7 +26,7 @@ def detect_speech(
     output_format: str = "json",
     progress_callback: Callable[[float], None] | None = None,
     **kwargs,
-) -> "VADResult":
+) -> VADResult:
     """Detect speech segments in audio.
 
     This is the main entry point for voice activity detection.
@@ -69,10 +70,11 @@ def detect_speech(
         >>> detect_speech("audio.wav", output_file="vad_result.json")
     """
     # Import here to avoid circular imports and allow lazy loading
+    import mlx.core as mx
+
+    from mlx_audio.functional._audio import load_audio_input
     from mlx_audio.models.vad import SileroVAD, VADConfig
     from mlx_audio.types.vad import VADResult
-    from mlx_audio.functional._audio import load_audio_input
-    import mlx.core as mx
 
     # Load audio using shared utility (16kHz default for VAD, mono)
     audio_array, sample_rate = load_audio_input(
@@ -83,10 +85,7 @@ def detect_speech(
     )
 
     # Create model config based on sample rate
-    if sample_rate == 8000:
-        config = VADConfig.silero_vad_8k()
-    else:
-        config = VADConfig.silero_vad_16k()
+    config = VADConfig.silero_vad_8k() if sample_rate == 8000 else VADConfig.silero_vad_16k()
 
     # Override threshold in config
     config.threshold = threshold

@@ -109,10 +109,7 @@ class HTDemucs(nn.Module):
         self.decoder = []
         for i in range(len(channels) - 1, -1, -1):
             chin_dec = channels[i]
-            if i > 0:
-                chout_dec = channels[i - 1]
-            else:
-                chout_dec = chin_z * config.num_sources
+            chout_dec = channels[i - 1] if i > 0 else chin_z * config.num_sources
             self.decoder.append(
                 HDecLayer(
                     chin_dec, chout_dec,
@@ -129,10 +126,7 @@ class HTDemucs(nn.Module):
         self.tdecoder = []
         for i in range(len(channels) - 1, -1, -1):
             chin_dec = channels[i]
-            if i > 0:
-                chout_dec = channels[i - 1]
-            else:
-                chout_dec = chin * config.num_sources
+            chout_dec = channels[i - 1] if i > 0 else chin * config.num_sources
             self.tdecoder.append(
                 HDecLayer(
                     chin_dec, chout_dec,
@@ -201,7 +195,7 @@ class HTDemucs(nn.Module):
         # training_length = segment * samplerate
         training_length = int(self.config.segment * self.config.samplerate)
         length_pre_pad = None
-        if T < training_length:
+        if training_length > T:
             length_pre_pad = T
             pad_amount = training_length - T
             mix = mx.pad(mix, [(0, 0), (0, 0), (0, pad_amount)])
@@ -325,14 +319,14 @@ class HTDemucs(nn.Module):
         # Decode frequency branch (with skips, reversed order)
         # Pass lengths in reverse order for decoder trimming
         for dec, skip, length in zip(
-            self.decoder, reversed(freq_skips), reversed(freq_lengths)
+            self.decoder, reversed(freq_skips), reversed(freq_lengths), strict=False
         ):
             x, pre = dec(x, skip, length)
 
         # Decode time branch (with skips, reversed order)
         # Pass lengths in reverse order for decoder trimming
         for dec, skip, length in zip(
-            self.tdecoder, reversed(time_skips), reversed(time_lengths)
+            self.tdecoder, reversed(time_skips), reversed(time_lengths), strict=False
         ):
             xt, pre = dec(xt, skip, length)
 
@@ -390,8 +384,9 @@ class HTDemucs(nn.Module):
         - Removes Nyquist bin (last freq bin) to get n_fft//2 bins
         - Trims time frames to match expected output length
         """
-        from mlx_audio.primitives import stft
         import math
+
+        from mlx_audio.primitives import stft
 
         B, C, T = x.shape
         n_fft = self.config.nfft
@@ -450,6 +445,7 @@ class HTDemucs(nn.Module):
             Audio output [B, S, C, T]
         """
         import math
+
         from mlx_audio.primitives import istft
 
         B, S, C_real, F, Tf = m.shape
@@ -514,7 +510,7 @@ class HTDemucs(nn.Module):
         cls,
         path: str | Path,
         **kwargs: Any,
-    ) -> "HTDemucs":
+    ) -> HTDemucs:
         """Load pretrained HTDemucs model.
 
         Args:

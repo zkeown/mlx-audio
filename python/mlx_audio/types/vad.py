@@ -48,7 +48,7 @@ class VADResult:
     """
 
     segments: list[SpeechSegment]
-    probabilities: "mx.array | None" = None
+    probabilities: mx.array | None = None
     sample_rate: int = 16000
     window_size_samples: int = 512
     model_name: str = ""
@@ -112,7 +112,7 @@ class VADResult:
 
         return silences
 
-    def get_speech_audio(self, audio: "mx.array") -> "mx.array":
+    def get_speech_audio(self, audio: mx.array) -> mx.array:
         """Extract speech portions from audio.
 
         Args:
@@ -139,7 +139,7 @@ class VADResult:
 
         return mx.concatenate(segments_audio, axis=-1)
 
-    def get_silence_audio(self, audio: "mx.array") -> "mx.array":
+    def get_silence_audio(self, audio: mx.array) -> mx.array:
         """Extract silence portions from audio.
 
         Args:
@@ -240,14 +240,14 @@ class VADResult:
     @classmethod
     def from_probabilities(
         cls,
-        probabilities: "mx.array",
+        probabilities: mx.array,
         sample_rate: int = 16000,
         window_size_samples: int = 512,
         threshold: float = 0.5,
         min_speech_duration: float = 0.25,
         min_silence_duration: float = 0.1,
         model_name: str = "",
-    ) -> "VADResult":
+    ) -> VADResult:
         """Create VADResult from per-frame probabilities.
 
         Args:
